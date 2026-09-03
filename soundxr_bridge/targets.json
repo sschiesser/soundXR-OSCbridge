@@ -1,0 +1,268 @@
+{
+  "version": 1,
+  "note": [
+    "Sound xR Image OSC target catalogue.",
+    "Derived from 'Sound xR Image on DME OSC Specifications v1.0.0' (Yamaha).",
+    "Entries with \"verified\": false were reconstructed from the same document's",
+    "summary tables or from the ADM-OSC public specification and should be checked",
+    "against your own firmware before a show. This file is plain JSON: add, edit or",
+    "delete entries freely, or drop a second catalogue file next to it and load it",
+    "from the GUI (File > Load target catalogue...).",
+    "",
+    "Placeholders in \"address\" are filled from \"indices\"; {component} is the",
+    "Sound xR Image component ID on the DME (lowest one is controlled if several)."
+  ],
+  "protocols": {
+    "adm": {
+      "label": "ADM-OSC",
+      "default_port": 4002,
+      "description": "Normalised, bi-directional object control. UDP 4002."
+    },
+    "yosc": {
+      "label": "Native (yosc)",
+      "default_port": 50528,
+      "description": "Yamaha /yosc:req control. UDP 50528."
+    }
+  },
+  "targets": [
+    {
+      "id": "adm.obj.xyz",
+      "protocol": "adm",
+      "group": "ADM-OSC / Object",
+      "label": "Position X/Y/Z (normalised)",
+      "address": "/adm/obj/{obj}/xyz",
+      "indices": [{"name": "obj", "label": "Object", "min": 1, "max": 128, "default": 1}],
+      "args": [
+        {"name": "x", "type": "float", "min": -1.0, "max": 1.0, "default": 0.0, "unit": "norm"},
+        {"name": "y", "type": "float", "min": -1.0, "max": 1.0, "default": 0.0, "unit": "norm"},
+        {"name": "z", "type": "float", "min": -1.0, "max": 1.0, "default": 0.0, "unit": "norm"}
+      ],
+      "verified": true
+    },
+    {
+      "id": "adm.obj.w",
+      "protocol": "adm",
+      "group": "ADM-OSC / Object",
+      "label": "Width",
+      "address": "/adm/obj/{obj}/w",
+      "indices": [{"name": "obj", "label": "Object", "min": 1, "max": 128, "default": 1}],
+      "args": [{"name": "w", "type": "float", "min": 0.0, "max": 1.0, "default": 0.0, "unit": "norm"}],
+      "verified": true
+    },
+    {
+      "id": "adm.obj.gain",
+      "protocol": "adm",
+      "group": "ADM-OSC / Object",
+      "label": "Gain (linear)",
+      "address": "/adm/obj/{obj}/gain",
+      "indices": [{"name": "obj", "label": "Object", "min": 1, "max": 128, "default": 1}],
+      "args": [{"name": "gain", "type": "float", "min": 0.0, "max": 1.0, "default": 1.0, "unit": "lin"}],
+      "verified": true
+    },
+    {
+      "id": "adm.obj.mute",
+      "protocol": "adm",
+      "group": "ADM-OSC / Object",
+      "label": "Mute",
+      "address": "/adm/obj/{obj}/mute",
+      "indices": [{"name": "obj", "label": "Object", "min": 1, "max": 128, "default": 1}],
+      "args": [{"name": "mute", "type": "int", "min": 0, "max": 1, "default": 0, "unit": "0/1"}],
+      "verified": true
+    },
+    {
+      "id": "adm.obj.name",
+      "protocol": "adm",
+      "group": "ADM-OSC / Object",
+      "label": "Name",
+      "address": "/adm/obj/{obj}/name",
+      "indices": [{"name": "obj", "label": "Object", "min": 1, "max": 128, "default": 1}],
+      "args": [{"name": "name", "type": "string", "default": "", "unit": "text"}],
+      "verified": true
+    },
+
+    {
+      "id": "yosc.oba.object.physicalposition",
+      "protocol": "yosc",
+      "group": "Native / OBA object",
+      "label": "Physical position X/Y/Z (metres)",
+      "address": "/yosc:req/set/PROC:Component/{component}/OBA/Object/PhysicalPosition/{obj}",
+      "indices": [
+        {"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000},
+        {"name": "obj", "label": "Object", "min": 1, "max": 128, "default": 1}
+      ],
+      "args": [
+        {"name": "x", "type": "float", "min": -500.0, "max": 500.0, "default": 0.0, "unit": "m"},
+        {"name": "y", "type": "float", "min": -500.0, "max": 500.0, "default": 0.0, "unit": "m"},
+        {"name": "z", "type": "float", "min": -500.0, "max": 500.0, "default": 0.0, "unit": "m"}
+      ],
+      "verified": true
+    },
+    {
+      "id": "yosc.oba.object.logicalposition",
+      "protocol": "yosc",
+      "group": "Native / OBA object",
+      "label": "Logical position X/Y/Z (0-1)",
+      "address": "/yosc:req/set/PROC:Component/{component}/OBA/Object/LogicalPosition/{obj}",
+      "indices": [
+        {"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000},
+        {"name": "obj", "label": "Object", "min": 1, "max": 128, "default": 1}
+      ],
+      "args": [
+        {"name": "x", "type": "float", "min": 0.0, "max": 1.0, "default": 0.5, "unit": "norm"},
+        {"name": "y", "type": "float", "min": 0.0, "max": 1.0, "default": 0.5, "unit": "norm"},
+        {"name": "z", "type": "float", "min": 0.0, "max": 1.0, "default": 0.5, "unit": "norm"}
+      ],
+      "verified": true
+    },
+    {
+      "id": "yosc.oba.object.fader.level",
+      "protocol": "yosc",
+      "group": "Native / OBA object",
+      "label": "Fader level",
+      "address": "/yosc:req/set/PROC:Component/{component}/OBA/Object/Fader/Level/{obj}",
+      "indices": [
+        {"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000},
+        {"name": "obj", "label": "Object", "min": 1, "max": 128, "default": 1}
+      ],
+      "args": [
+        {"name": "level", "type": "int", "min": -13801, "max": 1000, "default": 0, "unit": "dB", "scale": 100}
+      ],
+      "verified": true
+    },
+    {
+      "id": "yosc.oba.object.fader.on",
+      "protocol": "yosc",
+      "group": "Native / OBA object",
+      "label": "Fader on",
+      "address": "/yosc:req/set/PROC:Component/{component}/OBA/Object/Fader/On/{obj}",
+      "indices": [
+        {"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000},
+        {"name": "obj", "label": "Object", "min": 1, "max": 128, "default": 1}
+      ],
+      "args": [{"name": "on", "type": "int", "min": 0, "max": 1, "default": 1, "unit": "0/1"}],
+      "verified": true
+    },
+    {
+      "id": "yosc.oba.object.sizeh",
+      "protocol": "yosc",
+      "group": "Native / OBA object",
+      "label": "Object width (SizeH)",
+      "address": "/yosc:req/set/PROC:Component/{component}/OBA/Object/SizeH/{obj}",
+      "indices": [
+        {"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000},
+        {"name": "obj", "label": "Object", "min": 1, "max": 128, "default": 1}
+      ],
+      "args": [{"name": "size", "type": "int", "min": 0, "max": 10000, "default": 0, "unit": "cm"}],
+      "verified": true
+    },
+    {
+      "id": "yosc.oba.object.sizev",
+      "protocol": "yosc",
+      "group": "Native / OBA object",
+      "label": "Object height (SizeV)",
+      "address": "/yosc:req/set/PROC:Component/{component}/OBA/Object/SizeV/{obj}",
+      "indices": [
+        {"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000},
+        {"name": "obj", "label": "Object", "min": 1, "max": 128, "default": 1}
+      ],
+      "args": [{"name": "size", "type": "int", "min": 0, "max": 10000, "default": 0, "unit": "cm"}],
+      "verified": true
+    },
+    {
+      "id": "yosc.oba.mainfader.level",
+      "protocol": "yosc",
+      "group": "Native / OBA master",
+      "label": "OBA main fader level",
+      "address": "/yosc:req/set/PROC:Component/{component}/OBA/MainFader/Level",
+      "indices": [{"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000}],
+      "args": [{"name": "level", "type": "int", "min": -13801, "max": 1000, "default": 0, "unit": "dB", "scale": 100}],
+      "verified": true
+    },
+    {
+      "id": "yosc.3drev.mainfader.level",
+      "protocol": "yosc",
+      "group": "Native / 3D reverb",
+      "label": "3D reverb main fader level",
+      "address": "/yosc:req/set/PROC:Component/{component}/3DRev/MainFader/Level",
+      "indices": [{"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000}],
+      "args": [{"name": "level", "type": "int", "min": -13801, "max": 1000, "default": 0, "unit": "dB", "scale": 100}],
+      "verified": true
+    },
+    {
+      "id": "yosc.speakerout.fader.level",
+      "protocol": "yosc",
+      "group": "Native / Outputs",
+      "label": "Speaker out fader level",
+      "address": "/yosc:req/set/PROC:Component/{component}/SpeakerOut/Fader/Level/{spk}",
+      "indices": [
+        {"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000},
+        {"name": "spk", "label": "Speaker", "min": 1, "max": 64, "default": 1}
+      ],
+      "args": [{"name": "level", "type": "int", "min": -13801, "max": 1000, "default": 0, "unit": "dB", "scale": 100}],
+      "verified": true
+    },
+    {
+      "id": "yosc.subwooferout.fader.level",
+      "protocol": "yosc",
+      "group": "Native / Outputs",
+      "label": "Subwoofer out fader level",
+      "address": "/yosc:req/set/PROC:Component/{component}/SubwooferOut/Fader/Level/{sub}",
+      "indices": [
+        {"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000},
+        {"name": "sub", "label": "Sub", "min": 1, "max": 16, "default": 1}
+      ],
+      "args": [{"name": "level", "type": "int", "min": -13801, "max": 1000, "default": 0, "unit": "dB", "scale": 100}],
+      "verified": true
+    },
+    {
+      "id": "yosc.auxout.fader.level",
+      "protocol": "yosc",
+      "group": "Native / Outputs",
+      "label": "AUX out fader level",
+      "address": "/yosc:req/set/PROC:Component/{component}/AuxOut/Fader/Level",
+      "indices": [{"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000}],
+      "args": [{"name": "level", "type": "int", "min": -13801, "max": 1000, "default": 0, "unit": "dB", "scale": 100}],
+      "verified": true
+    },
+    {
+      "id": "yosc.oscillator.level",
+      "protocol": "yosc",
+      "group": "Native / Oscillator",
+      "label": "Oscillator level",
+      "address": "/yosc:req/set/PROC:Component/{component}/Oscillator/Level",
+      "indices": [{"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000}],
+      "args": [{"name": "level", "type": "int", "min": -9600, "max": 0, "default": -9600, "unit": "dB", "scale": 100}],
+      "verified": true
+    },
+    {
+      "id": "yosc.scene.recall",
+      "protocol": "yosc",
+      "group": "Native / Scene",
+      "label": "Scene recall",
+      "address": "/yosc:req/event/PROC:Component/{component}/Command/Scene/Recall",
+      "indices": [{"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000}],
+      "args": [{"name": "scene", "type": "string", "default": "1", "unit": "scene no."}],
+      "verified": false
+    },
+    {
+      "id": "yosc.3drev.roomsize",
+      "protocol": "yosc",
+      "group": "Native / 3D reverb",
+      "label": "Reverb room size (check parameter ID)",
+      "address": "/yosc:req/set/PROC:Component/{component}/3DRev/RoomSize",
+      "indices": [{"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000}],
+      "args": [{"name": "size", "type": "int", "min": 2, "max": 20, "default": 10, "unit": "-"}],
+      "verified": false
+    },
+    {
+      "id": "yosc.3drev.decay",
+      "protocol": "yosc",
+      "group": "Native / 3D reverb",
+      "label": "Reverb decay (check parameter ID)",
+      "address": "/yosc:req/set/PROC:Component/{component}/3DRev/Decay",
+      "indices": [{"name": "component", "label": "Component ID", "min": 1, "max": 99999, "default": 40000}],
+      "args": [{"name": "decay", "type": "int", "min": 10, "max": 100, "default": 30, "unit": "-"}],
+      "verified": false
+    }
+  ]
+}

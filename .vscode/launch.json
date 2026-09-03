@@ -1,0 +1,97 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "1 \u00b7 Bridge GUI",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "soundxr_bridge",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "2 \u00b7 Bridge GUI + example project",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "soundxr_bridge",
+      "args": [
+        "examples/example_tracker.json"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "3 \u00b7 Bridge headless (example project)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "soundxr_bridge",
+      "args": [
+        "examples/example_tracker.json",
+        "--headless"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "4 \u00b7 Test source: send OSC to the bridge",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/send_test_osc.py",
+      "args": [
+        "--port",
+        "9000"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "5 \u00b7 Test sink: print what the bridge sends (ADM 4002)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/listen_osc.py",
+      "args": [
+        "--port",
+        "4002"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "5b \u00b7 Test sink: print native yosc output (50528)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/listen_osc.py",
+      "args": [
+        "--port",
+        "50528"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "6 \u00b7 Pytest (all tests)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "tests",
+        "-q"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Loopback demo (bridge + both sinks + source)",
+      "configurations": [
+        "2 \u00b7 Bridge GUI + example project",
+        "5 \u00b7 Test sink: print what the bridge sends (ADM 4002)",
+        "5b \u00b7 Test sink: print native yosc output (50528)",
+        "4 \u00b7 Test source: send OSC to the bridge"
+      ],
+      "stopAll": true
+    }
+  ]
+}

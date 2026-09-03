@@ -1,0 +1,97 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Setup: create .venv and install dependencies",
+      "type": "shell",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/setup.ps1"
+      },
+      "linux": {
+        "command": "bash ${workspaceFolder}/setup.sh"
+      },
+      "osx": {
+        "command": "bash ${workspaceFolder}/setup.sh"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Run tests",
+      "type": "shell",
+      "windows": {
+        "command": "${workspaceFolder}/.venv/Scripts/python.exe -m pytest tests -q"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/.venv/bin/python -m pytest tests -q"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/.venv/bin/python -m pytest tests -q"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Run the bridge GUI",
+      "type": "shell",
+      "windows": {
+        "command": "${workspaceFolder}/.venv/Scripts/python.exe -m soundxr_bridge"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/.venv/bin/python -m soundxr_bridge"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/.venv/bin/python -m soundxr_bridge"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Send test OSC (port 9000)",
+      "type": "shell",
+      "windows": {
+        "command": "${workspaceFolder}/.venv/Scripts/python.exe tools/send_test_osc.py --port 9000"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/.venv/bin/python tools/send_test_osc.py --port 9000"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/.venv/bin/python tools/send_test_osc.py --port 9000"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Listen on the ADM-OSC port (4002)",
+      "type": "shell",
+      "windows": {
+        "command": "${workspaceFolder}/.venv/Scripts/python.exe tools/listen_osc.py --port 4002"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/.venv/bin/python tools/listen_osc.py --port 4002"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/.venv/bin/python tools/listen_osc.py --port 4002"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Listen on the native yosc port (50528)",
+      "type": "shell",
+      "windows": {
+        "command": "${workspaceFolder}/.venv/Scripts/python.exe tools/listen_osc.py --port 50528"
+      },
+      "linux": {
+        "command": "${workspaceFolder}/.venv/bin/python tools/listen_osc.py --port 50528"
+      },
+      "osx": {
+        "command": "${workspaceFolder}/.venv/bin/python tools/listen_osc.py --port 50528"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
