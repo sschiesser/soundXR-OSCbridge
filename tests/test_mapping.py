@@ -151,3 +151,57 @@ def test_string_and_bool_inputs():
     assert engine.process("/mute", [True])[0][1] == [1]
     assert engine.process("/mute", ["0"])[0][1] == [0]
     assert engine.process("/mute", ["nope"]) == []
+
+
+def test_three_arguments_from_one_message():
+    """One incoming address with three floats -> x, y and z of one object."""
+    route = Route(source="/mocap/head", arg_index=0, legs=[
+        Leg("adm.obj.xyz", "x", {"obj": 1}, source_arg=0,
+            in_min=-2, in_max=2, out_min=-1, out_max=1),
+        Leg("adm.obj.xyz", "y", {"obj": 1}, source_arg=1,
+            in_min=-2, in_max=2, out_min=-1, out_max=1),
+        Leg("adm.obj.xyz", "z", {"obj": 1}, source_arg=2,
+            in_min=-2, in_max=2, out_min=-1, out_max=1),
+    ])
+    engine = MappingEngine(CAT, [route])
+    out = engine.process("/mocap/head", [2.0, 0.0, -2.0])
+    assert out == [("/adm/obj/1/xyz", [1.0, 0.0, -1.0], "adm")]
+
+
+def test_source_arg_falls_back_to_the_route():
+    route = Route(source="/a", arg_index=2, legs=[
+        Leg("adm.obj.gain", "gain", {"obj": 1}, in_min=0, in_max=10,
+            out_min=0, out_max=1),                      # source_arg=None
+        Leg("adm.obj.w", "w", {"obj": 1}, source_arg=0, in_min=0, in_max=10,
+            out_min=0, out_max=1),                      # explicit override
+    ])
+    engine = MappingEngine(CAT, [route])
+    # values chosen to differ from each parameter's default, otherwise the bus
+    # correctly suppresses the message as "nothing changed"
+    out = dict((a, v) for a, v, _ in engine.process("/a", [10.0, 0.0, 5.0]))
+    assert out["/adm/obj/1/gain"] == [0.5]              # took arg 2
+    assert out["/adm/obj/1/w"] == [1.0]                 # took arg 0
+
+
+def test_missing_argument_is_skipped_not_zeroed():
+    engine = MappingEngine(CAT, [Route(source="/short", legs=[
+        Leg("adm.obj.xyz", "x", {"obj": 1}, source_arg=0, in_min=0, in_max=1,
+            out_min=-1, out_max=1),
+        Leg("adm.obj.xyz", "y", {"obj": 1}, source_arg=5, in_min=0, in_max=1,
+            out_min=-1, out_max=1),
+    ])])
+    out = engine.process("/short", [1.0])
+    assert out == [("/adm/obj/1/xyz", [1.0, 0.0, 0.0], "adm")]
+
+
+def test_component_id_zero_is_allowed():
+    t = CAT.get("yosc.oba.object.fader.level")
+    component = next(i for i in t.indices if i.name == "component")
+    assert component.min == 0
+    assert t.format_address({"component": 0, "obj": 3}) == \
+        "/yosc:req/set/PROC:Component/0/OBA/Object/Fader/Level/3"
+
+
+def test_source_arg_survives_save_and_load():
+    r = Route(source="/a", legs=[Leg("adm.obj.xyz", "z", source_arg=2)])
+    assert Route.from_dict(r.to_dict()).legs[0].source_arg == 2

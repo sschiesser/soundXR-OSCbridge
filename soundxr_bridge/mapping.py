@@ -104,6 +104,7 @@ class Leg:
     target_id: str
     arg: str
     indices: dict[str, int] = field(default_factory=dict)
+    source_arg: int | None = None   # None = use the route's argument index
     in_min: float = 0.0
     in_max: float = 1.0
     out_min: float = 0.0
@@ -164,6 +165,7 @@ class Leg:
     def to_dict(self) -> dict:
         return {
             "target_id": self.target_id, "arg": self.arg, "indices": dict(self.indices),
+            "source_arg": self.source_arg,
             "in_min": self.in_min, "in_max": self.in_max,
             "out_min": self.out_min, "out_max": self.out_max,
             "curve": self.curve.to_dict(), "invert": self.invert,
@@ -177,6 +179,7 @@ class Leg:
         return cls(
             target_id=d["target_id"], arg=d["arg"],
             indices={k: int(v) for k, v in d.get("indices", {}).items()},
+            source_arg=(None if d.get("source_arg") is None else int(d["source_arg"])),
             in_min=float(d.get("in_min", 0.0)), in_max=float(d.get("in_max", 1.0)),
             out_min=float(d.get("out_min", 0.0)), out_max=float(d.get("out_max", 1.0)),
             curve=Curve.from_dict(d.get("curve", {})),
@@ -207,6 +210,10 @@ class Route:
 
     def label(self) -> str:
         return self.name or f"{self.source} [{self.arg_index}]"
+
+    def index_for(self, leg: "Leg") -> int:
+        """Which incoming argument feeds this leg."""
+        return self.arg_index if leg.source_arg is None else leg.source_arg
 
     def to_dict(self) -> dict:
         return {"source": self.source, "arg_index": self.arg_index, "name": self.name,
@@ -307,14 +314,14 @@ class MappingEngine:
         for route in self.routes:
             if not route.enabled or not route.matches(address):
                 continue
-            if route.arg_index >= len(args):
-                continue
-            raw = args[route.arg_index]
-            value = _to_float(raw)
-            if value is None:
-                continue
             for leg in route.legs:
                 if not leg.enabled:
+                    continue
+                index = route.index_for(leg)
+                if index < 0 or index >= len(args):
+                    continue
+                value = _to_float(args[index])
+                if value is None:
                     continue
                 try:
                     target = self.catalog.get(leg.target_id)

@@ -40,6 +40,14 @@ argument index. Each route holds one or more **legs**, and each leg writes one
 argument of one Sound xR parameter. Double-click a discovered address, or press
 `Map selected →`, and a route with a sensible default leg appears.
 
+**Multi-argument messages**
+A leg reads whichever argument of the incoming message you point it at:
+*Source argument* in the leg editor, `route default` meaning the index set on
+the route. So a single `/mocap/head 1.2 0.4 2.1` can drive x, y and z — one leg
+per argument. Pressing *Map selected →* on an address that carries several
+numbers builds those legs for you, in order, with each argument's observed
+range already filled in.
+
 **4 · Mappings are not only linear or 1-to-1**
 Per leg: independent input and output ranges, invert, centre deadzone,
 one-pole smoothing, output quantisation, and a transfer curve — `linear`,
@@ -196,6 +204,7 @@ all three at once.
 | `python`/`py` not found in `setup.ps1` | Install Python 3.10+ from python.org with *Add python.exe to PATH* ticked, reopen VS Code. |
 | `ModuleNotFoundError: PySide6` | Wrong interpreter selected — pick `.venv\Scripts\python.exe`. |
 | Nothing appears in the discovery table | Windows Firewall prompt on first run: allow Python on the private network. Check the sender is aimed at this machine's IP and the port in *Input*. |
+| A leg reads the wrong value of a multi-argument message | Set *Source argument* on the leg (0, 1, 2 ...) instead of leaving it on `route default`. |
 | Nothing arrives on the yosc side | Two separate destinations: ADM-OSC goes to 4002, native yosc to 50528. Check *Output · Native (yosc)* is **enabled** in the Transport bar, and listen on 50528 — port 4002 will never show yosc traffic. The monitor now marks messages it could not send. |
 | `[WinError 10048]` on Start | Another program already listens on that input port; change it. |
 | Debug config errors on an old VS Code | Update the Python extension, or change `"type": "debugpy"` to `"type": "python"` in `.vscode/launch.json`. |

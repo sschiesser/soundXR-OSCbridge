@@ -7,7 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
-                               QDockWidget, QDoubleSpinBox, QFileDialog,
+                               QDialog, QDockWidget, QDoubleSpinBox, QFileDialog,
                                QFormLayout, QGroupBox, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QMainWindow,
                                QMessageBox, QPlainTextEdit, QPushButton,
@@ -291,6 +291,14 @@ class MainWindow(QMainWindow):
 
         g_r = QGroupBox("Ranges")
         f = QFormLayout(g_r)
+        self.l_srcarg = QSpinBox()
+        self.l_srcarg.setRange(-1, 63)
+        self.l_srcarg.setSpecialValueText("route default")
+        self.l_srcarg.setToolTip(
+            "Which argument of the incoming message feeds this leg.\n"
+            "Give each leg its own index to forward every value of a\n"
+            "multi-argument message (0, 1, 2 ...).")
+        f.addRow("Source argument", self.l_srcarg)
         self.l_in_min, self.l_in_max = dspin(), dspin()
         self.l_out_min, self.l_out_max = dspin(), dspin()
         b_learn = QPushButton("Learn input range from incoming data")
@@ -354,7 +362,8 @@ class MainWindow(QMainWindow):
         v.addStretch(1)
 
         for widget in (self.l_in_min, self.l_in_max, self.l_out_min, self.l_out_max,
-                       self.l_amount, self.l_dead, self.l_smooth, self.l_quant):
+                       self.l_amount, self.l_dead, self.l_smooth, self.l_quant,
+                       self.l_srcarg):
             widget.valueChanged.connect(self._leg_fields_changed)
         self.l_curve_kind.currentTextChanged.connect(self._leg_fields_changed)
         self.l_arg.currentTextChanged.connect(self._leg_fields_changed)
@@ -554,9 +563,26 @@ class MainWindow(QMainWindow):
             return
         info = self.bridge.discovery.get(address)
         route = Route(source=address, arg_index=0, name="")
-        leg = self._make_default_leg(info, 0)
-        if leg:
-            route.legs.append(leg)
+        numeric = [n for n, a in enumerate(info.last_args)
+                   if isinstance(a, (int, float)) and not isinstance(a, bool)] if info else []
+        target = self.bridge.catalog.targets.get("adm.obj.xyz")
+        if len(numeric) > 1 and target and len(target.args) >= len(numeric):
+            # a multi-argument message: forward every value, in order
+            for slot, index in enumerate(numeric):
+                rng = info.observed_range(index)
+                lo, hi = rng if rng and rng[0] != rng[1] else (0.0, 1.0)
+                spec = target.args[slot]
+                route.legs.append(Leg(
+                    target_id=target.id, arg=spec.name,
+                    indices={i.name: i.default for i in target.indices},
+                    source_arg=index, in_min=lo, in_max=hi,
+                    out_min=spec.min, out_max=spec.max))
+            self._note(f"-- {address}: {len(numeric)} arguments -> "
+                       f"{', '.join(a.name for a in target.args[:len(numeric)])}")
+        else:
+            leg = self._make_default_leg(info, 0)
+            if leg:
+                route.legs.append(leg)
         self.bridge.engine.routes.append(route)
         self._rebuild_tree(select=route)
 
@@ -606,8 +632,9 @@ class MainWindow(QMainWindow):
             return [leg.target_id, "missing target", ""]
         curve = leg.curve.kind + ("" if leg.curve.kind != "breakpoints"
                                   else f" ({len(leg.curve.points)} pts)")
+        src = "" if leg.source_arg is None else f"arg {leg.source_arg} → "
         return [f"{target.label} · {leg.arg}",
-                target.format_address(leg.indices),
+                src + target.format_address(leg.indices),
                 f"{leg.in_min:g}→{leg.in_max:g}  ⇒  {leg.out_min:g}→{leg.out_max:g}  [{curve}]"]
 
     def _current(self) -> tuple[str | None, Route | None, Leg | None]:
@@ -663,8 +690,9 @@ class MainWindow(QMainWindow):
                         and l.indices == last.indices}
                 free = [a for a in target.args if a.name not in used]
                 spec = free[0] if free else target.args[0]
+                nxt = None if last.source_arg is None else last.source_arg + 1
                 new = Leg(target_id=target.id, arg=spec.name, indices=dict(last.indices),
-                          in_min=last.in_min, in_max=last.in_max,
+                          source_arg=nxt, in_min=last.in_min, in_max=last.in_max,
                           out_min=spec.min, out_max=spec.max)
         route.legs.append(new)
         self._rebuild_tree(select=route)
@@ -743,6 +771,7 @@ class MainWindow(QMainWindow):
             self.l_arg.clear()
             self.l_arg.addItems([a.name for a in target.args])
             self.l_arg.setCurrentText(leg.arg)
+        self.l_srcarg.setValue(-1 if leg.source_arg is None else leg.source_arg)
         self.l_in_min.setValue(leg.in_min)
         self.l_in_max.setValue(leg.in_max)
         self.l_out_min.setValue(leg.out_min)
@@ -767,6 +796,8 @@ class MainWindow(QMainWindow):
             return
         leg.arg = self.l_arg.currentText() or leg.arg
         leg.indices = {name: spin.value() for name, spin in getattr(self, "index_spins", {}).items()}
+        v = self.l_srcarg.value()
+        leg.source_arg = None if v < 0 else v
         leg.in_min = self.l_in_min.value()
         leg.in_max = self.l_in_max.value()
         leg.out_min = self.l_out_min.value()
@@ -818,7 +849,7 @@ class MainWindow(QMainWindow):
         if leg is None:
             return
         dlg = TargetPickerDialog(self.bridge.catalog, leg.target_id, self)
-        if dlg.exec() != dlg.Accepted or not dlg.result_target():
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.result_target():
             return
         target = self.bridge.catalog.get(dlg.result_target())
         leg.target_id = target.id
@@ -832,13 +863,18 @@ class MainWindow(QMainWindow):
         if item is not None:
             for c, text in enumerate(self._leg_columns(leg)):
                 item.setText(c, text)
+        proto = self.bridge.catalog.protocol_label(target.protocol)
+        dest = self.bridge.sender.destinations.get(target.protocol)
+        where = f"{dest.host}:{dest.port}" if dest else "no destination set"
+        state = "" if (dest and dest.enabled) else "  <-- that output is DISABLED"
+        self._note(f"-- target -> {target.label} [{proto} -> {where}]{state}")
 
     def _learn_range(self) -> None:
         kind, route, leg = self._current()
         if leg is None or route is None:
             return
         info = self.bridge.discovery.get(route.source)
-        rng = info.observed_range(route.arg_index) if info else None
+        rng = info.observed_range(route.index_for(leg)) if info else None
         if not rng or rng[0] == rng[1]:
             QMessageBox.information(self, "Nothing learned",
                                     "No numeric range observed for that address yet.")
@@ -864,11 +900,12 @@ class MainWindow(QMainWindow):
         if leg is None or route is None:
             return
         info = self.bridge.discovery.get(route.source)
-        if info is None or route.arg_index >= len(info.last_args):
+        index = route.index_for(leg)
+        if info is None or index >= len(info.last_args):
             self.curve_view.set_live_input(None)
             self.l_live.setText("—")
             return
-        raw = info.last_args[route.arg_index]
+        raw = info.last_args[index]
         if not isinstance(raw, (int, float)):
             return
         u = leg.normalise(float(raw))

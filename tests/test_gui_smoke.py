@@ -98,3 +98,51 @@ def test_curve_editor_breakpoint_editing(app):
     assert len(curve.points) == 3
     ed.set_live_input(0.5)
     ed.grab()          # forces a paintEvent
+
+
+def test_switching_a_leg_to_a_yosc_target_sticks(app):
+    """Regression: PySide6 >= 6.9 removed instance access to enum members, so
+    `dlg.Accepted` raised AttributeError and the target switch was abandoned
+    half-way — the leg silently stayed on its ADM-OSC target."""
+    from PySide6.QtWidgets import QDialog
+
+    from soundxr_bridge.gui import main_window as mw
+    from soundxr_bridge.gui.target_picker import ID_ROLE, TargetPickerDialog
+
+    win = MainWindow(Project(input_port=59998))
+    win.bridge.discovery.observe("/ctl/fader/1", (0.5,))
+    win._refresh_discovery()
+    win.disc_table.selectRow(0)
+    win._new_route_from_discovery()
+    route = win.bridge.engine.routes[0]
+    leg = route.legs[0]
+    assert leg.target_id.startswith("adm.")
+
+    class PickYoscFader(TargetPickerDialog):
+        def exec(self):
+            for i in range(self.tree.topLevelItemCount()):
+                head = self.tree.topLevelItem(i)
+                for j in range(head.childCount()):
+                    child = head.child(j)
+                    if child.data(0, ID_ROLE) == "yosc.oba.object.fader.level":
+                        self.tree.setCurrentItem(child)
+                        return QDialog.DialogCode.Accepted
+            raise AssertionError("yosc fader missing from the picker")
+
+    original = mw.TargetPickerDialog
+    mw.TargetPickerDialog = PickYoscFader
+    try:
+        win.tree.setCurrentItem(win.tree.topLevelItem(0).child(0))
+        win._pick_target()
+    finally:
+        mw.TargetPickerDialog = original
+
+    assert leg.target_id == "yosc.oba.object.fader.level"
+    assert leg.indices == {"component": 40000, "obj": 1}
+    win.l_in_max.setValue(2.0)                       # editing must not revert it
+    assert leg.target_id == "yosc.oba.object.fader.level"
+
+    address, values, protocol = win.bridge.engine.process("/ctl/fader/1", [1.0])[0]
+    assert protocol == "yosc"
+    assert address == "/yosc:req/set/PROC:Component/40000/OBA/Object/Fader/Level/1"
+    win.close()
