@@ -1,3 +1,3 @@
 """Sound xR OSC Bridge — auto-discovering OSC mapper for Yamaha Sound xR Image."""
 
-__version__ = "1.3.0"
+__version__ = "1.4.1"

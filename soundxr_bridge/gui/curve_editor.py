@@ -27,8 +27,8 @@ class CurveEditor(QWidget):
         self._live: float | None = None      # last normalised input, for the cursor
         self.setMinimumSize(220, 180)
         self.setMouseTracking(True)
-        self.setToolTip("Breakpoint mode: drag points, double-click to add, "
-                        "right-click to remove.")
+        self.setToolTip("Breakpoint mode: click empty space to add a point, "
+                        "drag to move it, right-click to remove.")
 
     # -- data ------------------------------------------------------------
     def curve(self) -> Curve:
@@ -148,10 +148,6 @@ class CurveEditor(QWidget):
         self._drag = None
 
     def mouseDoubleClickEvent(self, e: QMouseEvent) -> None:
-        if self._curve.kind != "breakpoints":
-            return
-        x, y = self._to_unit(e.position())
-        self._curve.points.append((x, y))
-        self._curve.points.sort()
-        self.curveChanged.emit()
-        self.update()
+        # The press that precedes every double click has already added the
+        # point; adding another here would stack two on the same spot.
+        e.accept()

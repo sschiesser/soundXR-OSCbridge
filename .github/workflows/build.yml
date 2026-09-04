@@ -1,0 +1,87 @@
+name: build
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: SoundxR-OSC-Bridge-windows
+          - os: macos-latest            # Apple silicon runner
+            artifact: SoundxR-OSC-Bridge-macos-arm64
+          - os: macos-13                # Intel runner
+            artifact: SoundxR-OSC-Bridge-macos-x86_64
+          - os: ubuntu-latest
+            artifact: SoundxR-OSC-Bridge-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt pyinstaller
+
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest tests -q
+
+      - name: Build
+        run: python -m PyInstaller packaging/soundxr_bridge.spec --noconfirm --clean
+
+      - name: Smoke test the binary (Linux)
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ./dist/SoundxR-OSC-Bridge/SoundxR-OSC-Bridge --help
+
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -qry ../${{ matrix.artifact }}.zip SoundxR-OSC-Bridge.app
+          cd ..
+
+      - name: Package Windows / Linux app
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          cd dist
+          7z a -tzip ../${{ matrix.artifact }}.zip SoundxR-OSC-Bridge >/dev/null \
+            || zip -qry ../${{ matrix.artifact }}.zip SoundxR-OSC-Bridge
+          cd ..
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
+          generate_release_notes: true

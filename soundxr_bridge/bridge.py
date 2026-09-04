@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .catalog import Catalog
+from .catalog import Catalog, user_catalog
 from .mapping import MappingEngine
 from .osc_io import Discovery, OscReceiver, OscSender
 from .project import Project
@@ -18,6 +18,12 @@ class Bridge:
                  catalog: Catalog | None = None) -> None:
         self.project = project or Project()
         self.catalog = catalog or Catalog.load()
+        extra_user = user_catalog()
+        if extra_user and extra_user != self.catalog.source_path:
+            try:
+                self.catalog.merge(Catalog.load(extra_user))
+            except Exception:
+                pass
         for extra in self.project.extra_catalogs:
             try:
                 self.catalog.merge(Catalog.load(extra))
@@ -80,9 +86,16 @@ class Bridge:
         return self.project
 
 
-def run_headless(project_path: str | Path, verbose: bool = True) -> None:
+def run_headless(project_path: str | Path, verbose: bool = True,
+                 web_port: int | None = None, web_host: str = "0.0.0.0") -> None:
     project = Project.load(project_path)
     bridge = Bridge(project)
+    remote = None
+    if web_port:
+        from .web import WebRemote
+        remote = WebRemote(bridge, web_host, web_port)
+        remote.start()
+        print(f"Browser remote on http://{web_host}:{web_port}/")
     if verbose:
         def log(messages):
             for address, args, proto in messages:
@@ -100,4 +113,6 @@ def run_headless(project_path: str | Path, verbose: bool = True) -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        if remote:
+            remote.stop()
         bridge.stop()

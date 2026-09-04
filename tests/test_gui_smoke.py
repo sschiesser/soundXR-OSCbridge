@@ -11,8 +11,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 PySide6 = pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPointF, Qt  # noqa: E402
-from PySide6.QtGui import QMouseEvent  # noqa: E402
+from PySide6.QtCore import QPoint, Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from soundxr_bridge.gui.curve_editor import CurveEditor  # noqa: E402
@@ -90,14 +90,28 @@ def test_target_picker_lists_catalogue(app):
 def test_curve_editor_breakpoint_editing(app):
     ed = CurveEditor()
     ed.resize(200, 200)
+    ed.show()
     curve = Curve("breakpoints", points=[(0.0, 0.0), (1.0, 1.0)])
     ed.set_curve(curve)
-    pos = QPointF(100, 100)
-    ed.mouseDoubleClickEvent(QMouseEvent(QMouseEvent.MouseButtonDblClick, pos,
-                                         Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
-    assert len(curve.points) == 3
+
+    # clicking empty space adds exactly one point
+    QTest.mouseClick(ed, Qt.LeftButton, Qt.NoModifier, QPoint(100, 100))
+    assert len(curve.points) == 3, curve.points
+
+    # Qt sends press -> release -> double-click for one double click, so the
+    # double-click handler must add nothing of its own or every double click
+    # would leave two points stacked on the same spot.
+    QTest.mouseDClick(ed, Qt.LeftButton, Qt.NoModifier, QPoint(60, 140))
+    assert len(curve.points) == 3, curve.points
+
+    # right-click on a point removes it
+    QTest.mouseClick(ed, Qt.RightButton, Qt.NoModifier, QPoint(100, 100))
+    assert len(curve.points) == 2, curve.points
+
+    assert curve.points == sorted(curve.points)      # stays ordered by x
     ed.set_live_input(0.5)
     ed.grab()          # forces a paintEvent
+    ed.close()
 
 
 def test_switching_a_leg_to_a_yosc_target_sticks(app):

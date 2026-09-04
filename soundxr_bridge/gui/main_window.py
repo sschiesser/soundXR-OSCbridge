@@ -47,6 +47,8 @@ class MainWindow(QMainWindow):
 
         self.bridge = Bridge(project or Project(), catalog)
         self.bridge.on_output = self._log_output
+        self.web = None
+        self._web_revision = 0
         self._loading = False
 
         self._build_ui()
@@ -204,6 +206,21 @@ class MainWindow(QMainWindow):
         f.addRow(self.btn_start)
         f.addRow(b_force)
         h.addWidget(g_run)
+
+        g_web = QGroupBox("Browser remote")
+        f = QFormLayout(g_web)
+        self.chk_web = QCheckBox("serve")
+        self.web_port = QSpinBox()
+        self.web_port.setRange(1, 65535)
+        self.web_port.setValue(8080)
+        self.web_url = QLabel("off")
+        self.web_url.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.web_url.setStyleSheet("color: palette(mid);")
+        self.chk_web.toggled.connect(self._toggle_web)
+        f.addRow("Port", self.web_port)
+        f.addRow("", self.chk_web)
+        f.addRow(self.web_url)
+        h.addWidget(g_web)
         h.addStretch(1)
 
         for widget in (self.in_host, self.in_port, self.rate):
@@ -466,6 +483,30 @@ class MainWindow(QMainWindow):
             self.btn_start.setText("Start")
             self.statusBar().showMessage("Stopped.")
 
+    def _toggle_web(self, on: bool) -> None:
+        from ..web import WebRemote
+        if on:
+            if self.web is None:
+                self.web = WebRemote(self.bridge, "0.0.0.0", self.web_port.value())
+            self.web.port = self.web_port.value()
+            try:
+                self.web.start()
+            except OSError as exc:
+                self._note(f"!! browser remote: {exc}")
+                QMessageBox.critical(self, "Cannot serve",
+                                     f"Port {self.web_port.value()}: {exc}")
+                self.chk_web.setChecked(False)
+                return
+            ips = [a for a in local_addresses() if a != "127.0.0.1"] or ["127.0.0.1"]
+            url = f"http://{ips[0]}:{self.web.port}/"
+            self.web_url.setText(url)
+            self._note(f"== browser remote on {url}  (open it on a tablet or phone)")
+        else:
+            if self.web is not None:
+                self.web.stop()
+            self.web_url.setText("off")
+            self._note("== browser remote stopped")
+
     def _check_for_silence(self) -> None:
         """Five seconds after Start with nothing received: say what to check."""
         if not self.btn_start.isChecked():
@@ -516,6 +557,13 @@ class MainWindow(QMainWindow):
         if not self.chk_freeze.isChecked():
             self._refresh_discovery()
         self._refresh_live()
+        # a change made in the browser must show up in the window
+        if self.web is not None and self.web.running:
+            rev = self.web.controller.revision
+            if rev != self._web_revision:
+                self._web_revision = rev
+                if not self.tree.hasFocus():
+                    self._rebuild_tree()
 
     def _refresh_discovery(self) -> None:
         items = self.bridge.discovery.snapshot()
@@ -983,5 +1031,7 @@ class MainWindow(QMainWindow):
             "correct or extend them.")
 
     def closeEvent(self, event) -> None:
+        if self.web is not None:
+            self.web.stop()
         self.bridge.stop()
         super().closeEvent(event)

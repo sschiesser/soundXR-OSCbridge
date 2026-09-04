@@ -16,6 +16,19 @@ from typing import Any
 DEFAULT_CATALOG = Path(__file__).with_name("targets.json")
 
 
+def user_catalog() -> Path | None:
+    """A targets.json placed next to the executable (or the working directory).
+
+    In a packaged build the bundled catalogue is read-only, so this is how a
+    user corrects or extends the address list without a rebuild.
+    """
+    import sys
+    base = (Path(sys.executable).parent if getattr(sys, "frozen", False)
+            else Path.cwd())
+    candidate = base / "targets.json"
+    return candidate if candidate.is_file() else None
+
+
 @dataclass(frozen=True)
 class ArgSpec:
     name: str

@@ -14,6 +14,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="run a saved project without the GUI")
     ap.add_argument("--catalog", help="extra target catalogue .json to merge")
     ap.add_argument("--port", type=int, help="override the input port")
+    ap.add_argument("--web", nargs="?", const=8080, type=int, metavar="PORT",
+                    help="serve the browser remote (default port 8080)")
+    ap.add_argument("--web-host", default="0.0.0.0",
+                    help="interface for the browser remote (default: all)")
     args = ap.parse_args(argv)
 
     from .catalog import Catalog
@@ -27,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.project:
             ap.error("--headless needs a project file")
         from .bridge import run_headless
-        run_headless(args.project)
+        run_headless(args.project, web_port=args.web, web_host=args.web_host)
         return 0
 
     try:
@@ -45,6 +49,9 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Sound xR OSC Bridge")
     win = MainWindow(project, catalog)
+    if args.web:
+        win.web_port.setValue(args.web)
+        win.chk_web.setChecked(True)
     win.show()
     return app.exec()
 
