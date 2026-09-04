@@ -17,7 +17,7 @@ jobs:
             artifact: SoundxR-OSC-Bridge-windows
           - os: macos-latest            # Apple silicon runner
             artifact: SoundxR-OSC-Bridge-macos-arm64
-          - os: macos-13                # Intel runner
+          - os: macos-15-intel          # Intel runner (macos-13 was retired Dec 2025)
             artifact: SoundxR-OSC-Bridge-macos-x86_64
           - os: ubuntu-latest
             artifact: SoundxR-OSC-Bridge-linux
