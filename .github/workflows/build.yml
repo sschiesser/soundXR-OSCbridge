@@ -101,3 +101,26 @@ jobs:
         with:
           files: artifacts/**/*.zip
           generate_release_notes: true
+          body: |
+            ### Which file do I need?
+
+            | Your machine | Download |
+            |---|---|
+            | Windows 10/11 | `SoundxR-OSC-Bridge-windows.zip` |
+            | Mac with Apple silicon (M1-M4) | `SoundxR-OSC-Bridge-macos-arm64.zip` |
+            | Mac with Intel | `SoundxR-OSC-Bridge-macos-x86_64.zip` |
+            | Linux | `SoundxR-OSC-Bridge-linux.zip` |
+
+            No Python installation is needed — everything is bundled.
+
+            **Windows:** unzip and keep the whole folder together, then run
+            `SoundxR-OSC-Bridge.exe` inside it. Allow it through Windows Firewall
+            on the private network when asked, or no OSC will arrive.
+
+            **macOS:** the app is unsigned, so the first launch needs
+            right-click → Open. On macOS 15 and later, also allow local network
+            access when prompted — the OSC sockets stay silent until you do.
+
+            **Tablets and phones:** there is no mobile app. Tick *serve* in the
+            Browser remote box and open the URL it shows from any browser on the
+            same network.
