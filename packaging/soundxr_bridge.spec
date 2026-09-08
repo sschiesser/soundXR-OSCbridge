@@ -1,22 +1,38 @@
-# PyInstaller spec — builds the same app on Windows, macOS and Linux.
-#   pyinstaller packaging/soundxr_bridge.spec --noconfirm
+# PyInstaller spec — one app for Windows, macOS and Linux.
+#   pyinstaller packaging/soundxr_bridge.spec --noconfirm --clean
+#
+# The interface is served over HTTP and opened in the default browser, so no
+# Qt, no webview and no system browser engine is bundled. NiceGUI's static
+# assets do have to be collected, or the page loads blank.
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_all
+
 ROOT = Path(SPECPATH).parent
 NAME = "SoundxR-OSC-Bridge"
+VERSION = "2.0.0"
+
+nicegui_datas, nicegui_binaries, nicegui_hidden = collect_all("nicegui")
 
 a = Analysis(
-    [str(ROOT / "run_app.py")],
+    [str(ROOT / "packaging" / "entry.py")],
     pathex=[str(ROOT)],
-    datas=[(str(ROOT / "soundxr_bridge" / "targets.json"), "soundxr_bridge")],
-    hiddenimports=["pythonosc"],
+    datas=nicegui_datas + [
+        (str(ROOT / "soundxr_bridge" / "targets.json"), "soundxr_bridge"),
+    ],
+    binaries=nicegui_binaries,
+    hiddenimports=nicegui_hidden + [
+        "pythonosc",
+        "uvicorn.logging",
+        "uvicorn.loops.auto",
+        "uvicorn.protocols.http.auto",
+        "uvicorn.protocols.websockets.auto",
+        "uvicorn.lifespan.on",
+    ],
     excludes=[
-        # Qt ships a lot we never touch; dropping it keeps the binary sane
-        "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtQuick",
-        "PySide6.QtQml", "PySide6.Qt3DCore", "PySide6.QtMultimedia",
-        "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtBluetooth",
-        "PySide6.QtPdf", "PySide6.QtDesigner", "tkinter", "matplotlib", "numpy",
+        "PySide6", "PyQt5", "PyQt6", "tkinter", "matplotlib", "numpy",
+        "pandas", "selenium", "webview", "IPython",
     ],
     noarchive=False,
 )
@@ -26,7 +42,9 @@ exe = EXE(
     pyz, a.scripts, [],
     exclude_binaries=True,
     name=NAME,
-    console=False,          # windowed app; the log pane shows what it is doing
+    # a console is useful on Windows and Linux: it prints the URL to open and
+    # any bind error. The macOS .app has no console, so it is windowed there.
+    console=sys.platform != "darwin",
     disable_windowed_traceback=False,
     icon=None,
 )
@@ -37,12 +55,16 @@ if sys.platform == "darwin":
         coll,
         name=f"{NAME}.app",
         bundle_identifier="ch.zhdk.iaspace.soundxroscbridge",
+        version=VERSION,
         info_plist={
-            "CFBundleShortVersionString": "1.4.0",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
             "NSHighResolutionCapable": True,
-            # macOS 15+ asks the user before an app may talk on the local network;
-            # without this key the OSC sockets are silently blocked.
+            "LSMinimumSystemVersion": "11.0",
+            # macOS 15+ asks before an app may use the local network; without
+            # this key the OSC sockets are silently blocked.
             "NSLocalNetworkUsageDescription":
                 "The bridge receives and sends OSC on your local network.",
+            "NSBonjourServices": ["_osc._udp"],
         },
     )

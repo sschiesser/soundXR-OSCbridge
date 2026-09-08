@@ -2,65 +2,70 @@
 
 Receives arbitrary OSC, learns every address it sees, and maps it onto Yamaha
 **Sound xR Image** parameters — ADM-OSC and the native `/yosc:req` protocol —
-with non-linear, one-to-many mappings you build in a GUI.
+with non-linear, one-to-many mappings you build by hand.
 
-![workflow](docs/screenshot.png)
+![the bridge](docs/screenshot.png)
+
+The interface is a web page the app serves itself. It opens in your browser on
+the machine running the bridge, and the same address works from an iPad or a
+phone on the same network — so a tablet at the mix position can drive a bridge
+running on the show machine.
 
 ## Install
 
+**Ready-made application** — no Python needed. Download from
+[Releases](../../releases): a `.zip` for Windows and Linux, a `.dmg` for macOS.
+Run it, and your browser opens on the interface.
+
+**From source:**
+
 ```bash
-pip install -r requirements.txt      # python-osc + PySide6
-python -m soundxr_bridge             # start the GUI
-python -m soundxr_bridge examples/example_tracker.json
+pip install -r requirements.txt      # python-osc + nicegui
+python -m soundxr_bridge             # opens http://localhost:8080
+python -m soundxr_bridge myshow.json --start
 ```
 
 Python 3.10 or newer. Run it on any machine on the same network as the DME
 (Sound xR Image accepts up to 8 remote controllers).
 
-## The four requirements, and where they live
+| Flag | What it does |
+|---|---|
+| `--port 8080` | port for the interface |
+| `--host 0.0.0.0` | which adapter to serve the interface on |
+| `--start` | begin listening immediately, without pressing Start |
+| `--no-browser` | do not open a browser window |
+| `--headless` | run a preset with no interface at all |
 
-**1 · Auto-discovery of incoming OSC**
-The receiver installs a catch-all handler, so nothing has to be declared in
-advance. The left table fills as messages arrive and shows, per address: the
-OSC type tags, message rate, count, the last argument values and the **min/max
-range observed so far** — that observed range is what the *Learn input range*
-button in the editor uses, so you can just wave the controller around and let
-the app work out its endpoints. `Freeze` stops the table updating while you
-work; `Clear list` forgets everything.
+## How it works
 
-**2 · Selection list of available Sound xR addresses**
-`Choose address…` opens a searchable, grouped list of every target in
-`soundxr_bridge/targets.json`, with its address template, argument types,
-ranges and units. Index placeholders (object number, component ID, speaker
-number) become spin boxes, and the resolved address is shown live.
+**Auto-discovery.** The receiver installs a catch-all handler, so nothing has
+to be declared in advance. The table fills as messages arrive and shows, per
+address: OSC type tags, message rate, count, the last values, and the min/max
+seen so far.
 
-**3 · GUI mapping from input to output**
-A **route** is one incoming address (wildcards allowed: `/track/*/xyz`) plus one
-argument index. Each route holds one or more **legs**, and each leg writes one
-argument of one Sound xR parameter. Double-click a discovered address, or press
-`Map selected →`, and a route with a sensible default leg appears.
+**A route is one incoming address** (wildcards allowed: `/track/*/xyz`).
+**A leg is one Sound xR parameter** it drives. Tap a discovered address and the
+app builds a route for you — and if that address carries several numbers, one
+leg per value, each with the range it has actually been seen using.
 
-**Multi-argument messages**
-A leg reads whichever argument of the incoming message you point it at:
-*Source argument* in the leg editor, `route default` meaning the index set on
-the route. So a single `/mocap/head 1.2 0.4 2.1` can drive x, y and z — one leg
-per argument. Pressing *Map selected →* on an address that carries several
-numbers builds those legs for you, in order, with each argument's observed
-range already filled in.
-
-**4 · Mappings are not only linear or 1-to-1**
-Per leg: independent input and output ranges, invert, centre deadzone,
-one-pole smoothing, output quantisation, and a transfer curve — `linear`,
-`exponential`, `logarithmic`, `scurve` (all with an adjustable amount) or
-`breakpoints`, an editable point table you drag directly on the curve display
-(double-click adds a point, right-click removes one). The red cursor on the
-curve shows where the live input currently sits.
-
-Fan-out is the default shape, not an afterthought: one input can drive x, width
-and level at once, each with its own range and curve. The reverse also works —
-several different incoming addresses can write x, y and z of the same object;
-the output bus keeps the other arguments at their last value and coalesces
+**Fan-out is the normal shape.** One input can drive x, width and level at
+once, each with its own range and curve. The reverse works too: separate
+addresses can write x, y and z of the same object, and the output bus coalesces
 them into a single `/adm/obj/n/xyz` message per send tick.
+
+**Every leg picks its own argument.** *Source argument* selects which value of
+a multi-argument message feeds that leg — `0`, `1`, `2` … or `-1` to use the
+route's default.
+
+**Learn range.** Press it, move the controller through its travel, press stop.
+The min/max come from the message stream — every message, not a 4 Hz sample —
+and whatever the address did before you pressed Learn is discarded. *Learn
+whole route* does every leg in one pass.
+
+**Curves.** `linear`, `exponential`, `logarithmic`, `scurve` — each with an
+amount you set by slider, number box or preset button — or `breakpoints`, a
+point table you drag directly on the plot. A red cursor rides the curve showing
+where the live input currently sits.
 
 ## Signal path of one leg
 
@@ -78,20 +83,37 @@ raw argument
 ```
 
 Outgoing messages are collected and sent on a timer (default 100 Hz) rather
-than per input message, which coalesces multi-argument targets and keeps a
-fast tracker feed from flooding the DME. Nothing is sent when nothing changed.
+than per input message. That coalesces multi-argument targets and keeps a fast
+tracker feed from flooding the DME. **Nothing is sent when nothing changed** —
+so a static input looks silent by design; *Send all now* forces the current
+state out.
+
+The **output monitor** logs every message that leaves, marking any it could not
+send. It is a debugging tool, not a meter: its switch turns it off for a busy
+tracker feed, and turning it off also drops whatever is queued, so re-enabling
+starts from the present rather than replaying a backlog.
 
 ## Transport
 
 | | default | notes |
 |---|---|---|
-| Input | UDP 9000, all interfaces | any OSC source |
+| Interface | TCP 8080 | the web page; open it from a tablet too |
+| OSC input | UDP 9000, all adapters | `0.0.0.0` is the only setting that receives broadcasts |
 | ADM-OSC out | UDP 4002 | normalised object control |
 | Native yosc out | UDP 50528 | `/yosc:req/set/PROC:Component/…` |
 | Custom out | UDP 9001, off | for targets you add yourself |
 
-Set the DME's IP as the host for both outputs; enable only the protocol you
-actually use.
+Set the DME's IP as the host for the output you use, and enable only that one.
+
+## Presets
+
+Everything — ports, destinations, routes, legs, curves, ranges — saves to one
+JSON file. The **Preset** dropdown in the header switches between them
+immediately; the Presets card saves, loads and deletes them.
+
+They live in `Documents/SoundxR OSC Bridge/presets/` (set `SOUNDXR_DATA_DIR` to
+put them elsewhere), so you can copy a show between machines. The current state
+is also written to `_autosave.json` when the app closes and restored next time.
 
 ## The target catalogue
 
@@ -110,37 +132,69 @@ entry is an address template with index placeholders and typed arguments:
 }
 ```
 
-`"scale"` on an argument only affects the display (the native fader level is
-sent as dB × 100, so the editor shows you `-4000 = -40 dB` while the wire value
-stays an integer). Add your own entries, or keep them in a separate file and
-merge it at runtime with *File → Load extra target catalogue…* (the path is
-remembered in the project).
+`"scale"` on an argument only affects the display (the native fader level goes
+out as dB × 100, so the editor shows `-4000 = -40 dB` while the wire value
+stays an integer). In a packaged build the bundled catalogue is read-only, so a
+`targets.json` placed **next to the executable** is merged over it — that is how
+you correct an address without a rebuild.
 
 > **Check the addresses before a show.** The catalogue was built from Yamaha's
 > published *Sound xR Image on DME OSC Specifications v1.0.0*. Entries flagged
 > `"verified": false` — the two reverb parameters and scene recall — were
 > reconstructed from summary tables and are almost certainly not spelled right
 > for your firmware. Fix them in the JSON once and they are correct for good.
+>
+> The component ID defaults to `40000`; check yours in the Sound xR Image
+> Controller. A wrong ID means messages that arrive and do nothing.
 
-## Projects and headless operation
+## On a tablet
 
-Everything — ports, destinations, routes, legs, curves — saves to one JSON
-file. Once a show is built you can run it without the GUI:
+Start the bridge, note the address it prints (or the one in the Transport
+card), and open it in Safari or Chrome on the tablet. The layout stacks into a
+single column with finger-sized controls; both views stay in sync.
 
-```bash
-python -m soundxr_bridge examples/example_tracker.json --headless
+![on a tablet](docs/tablet.png)
+
+There is no iOS or Android app and there will not be one: the browser page is
+the tablet client. Note the page has **no password** — anyone on the network who
+finds the port can change your mappings. Fine on a closed show network, not on
+public Wi-Fi.
+
+## Building the application
+
+```powershell
+.\build.ps1            # Windows -> dist\SoundxR-OSC-Bridge\
 ```
+```bash
+./build.sh             # macOS -> dist/SoundxR-OSC-Bridge.app, Linux -> dist/SoundxR-OSC-Bridge/
+```
+
+Both run `packaging/smoke_test.py` afterwards, which starts the packaged binary,
+waits for the page and pushes a real OSC message through it — so a missing
+asset fails the build instead of shipping.
+
+`.github/workflows/build.yml` builds all four targets (Windows, macOS arm64,
+macOS Intel, Linux) on every push, runs the tests and the smoke test, and
+attaches the results to a GitHub release when you push a `v*` tag.
+
+**macOS signing** is wired up but dormant: with the four signing secrets set,
+the macOS jobs sign, notarise and staple a DMG; without them they produce an
+unsigned `.zip` that still works after a right-click → Open. See
+[docs/SIGNING.md](docs/SIGNING.md) for exactly what to obtain and where to put
+it.
+
+On macOS 15 and later the system asks for local network permission on first
+launch — until you agree, the OSC sockets stay silent.
 
 ## Tests
 
 ```bash
-python -m pytest tests -q      # 20 tests: curve maths, fan-out, coalescing,
-                               # UDP loopback, offscreen GUI smoke test
+python -m pytest tests -q       # 42 tests, no browser and no display needed
 ```
 
-`tests/test_loopback.py` runs the whole chain over real sockets: it sends OSC
-into the bridge and asserts on the transformed OSC that comes out the other
-side.
+`tests/test_loopback.py` runs the whole chain over real sockets. `test_webui.py`
+drives the actual page through NiceGUI's own harness — clicking buttons and
+asserting on what renders — so CI needs no browser.
 
 ## Layout
 
@@ -148,63 +202,23 @@ side.
 soundxr_bridge/
   targets.json      the Sound xR address catalogue (edit me)
   catalog.py        catalogue loading, address templating, units
-  osc_io.py         learning receiver, per-protocol senders
+  osc_io.py         learning receiver, per-protocol senders, diagnostics
   mapping.py        curves, legs, routes, the output bus
-  bridge.py         receiver → engine → sender, plus headless runner
-  project.py        save/load
-  gui/              main window, target picker, curve editor
+  bridge.py         receiver → engine → sender, plus the headless runner
+  project.py        the save format
+  presets.py        where presets live and how they are named
+  webui/app.py      the interface: one page, browser and tablet
+packaging/          PyInstaller spec, entry point, signing, smoke test
 ```
 
-## Running it in VS Code
-
-The workspace is preconfigured — `.vscode/` holds the launch, task and editor
-settings, and `setup.ps1` builds the environment.
-
-1. **Set up the environment, once.**
-   `Ctrl+Shift+B` (or *Terminal → Run Build Task…*) runs
-   *Setup: create .venv and install dependencies*: it creates `.venv` beside
-   this file, installs `python-osc`, `PySide6` and `pytest`, and finishes by
-   running the test suite. Equivalent by hand, in the VS Code terminal:
-
-   ```powershell
-   .\setup.ps1
-   ```
-
-   If PowerShell refuses the script, run
-   `powershell -ExecutionPolicy Bypass -File .\setup.ps1`.
-
-2. **Pick the interpreter.** `Ctrl+Shift+P` → *Python: Select Interpreter* →
-   `.\.venv\Scripts\python.exe`. VS Code usually offers it automatically once
-   the venv exists; it is already the default in `.vscode/settings.json`.
-
-3. **Run.** `F5` starts the GUI (*1 · Bridge GUI*). The dropdown at the top of
-   the Run and Debug panel also offers the example project, headless mode, the
-   test suite, and the two helper tools below.
-
-### Trying it without any hardware
-
-`tools/` holds a fake source and a fake device so the whole chain can be
-exercised on one laptop:
-
-```powershell
-.\.venv\Scripts\python.exe tools\listen_osc.py --port 4002     # pretend to be the DME
-.\.venv\Scripts\python.exe tools\send_test_osc.py --port 9000  # pretend to be a tracker
-```
-
-Then start the GUI, set both output hosts to `127.0.0.1`, press **Start**, and
-you will see `/tracker/1/x`, `/tracker/1/y`, `/ctl/fader/1` and `/track/5/mute`
-appear in the discovery table, and the mapped `/adm/obj/…` messages arrive in
-the listener window. The **Loopback demo** compound in the Run panel launches
-all three at once.
-
-### If something goes wrong
+## If something goes wrong
 
 | Symptom | Fix |
 |---|---|
-| `python`/`py` not found in `setup.ps1` | Install Python 3.10+ from python.org with *Add python.exe to PATH* ticked, reopen VS Code. |
-| `ModuleNotFoundError: PySide6` | Wrong interpreter selected — pick `.venv\Scripts\python.exe`. |
-| Nothing appears in the discovery table | Windows Firewall prompt on first run: allow Python on the private network. Check the sender is aimed at this machine's IP and the port in *Input*. |
-| A leg reads the wrong value of a multi-argument message | Set *Source argument* on the leg (0, 1, 2 ...) instead of leaving it on `route default`. |
-| Nothing arrives on the yosc side | Two separate destinations: ADM-OSC goes to 4002, native yosc to 50528. Check *Output · Native (yosc)* is **enabled** in the Transport bar, and listen on 50528 — port 4002 will never show yosc traffic. The monitor now marks messages it could not send. |
-| `[WinError 10048]` on Start | Another program already listens on that input port; change it. |
-| Debug config errors on an old VS Code | Update the Python extension, or change `"type": "debugpy"` to `"type": "python"` in `.vscode/launch.json`. |
+| Nothing appears in the discovery table | Allow the app through the firewall on the private network. Check *Listen on* is `0.0.0.0` — a specific address misses broadcasts and other adapters. |
+| `Cannot listen … address in use` | Another program holds that input port; close it or choose another. |
+| Nothing arrives on the yosc side | ADM-OSC goes to 4002, native yosc to 50528. Check the right output row is enabled — the monitor marks messages it could not send. |
+| A leg reads the wrong value of a multi-argument message | Set *Source argument* on that leg instead of leaving it at `-1`. |
+| The output monitor stays empty | Either its switch is off, or nothing changed since the last send — press *Send all now*. |
+| The browser page never opens | Run with `--no-browser` and open the printed address yourself. |
+| macOS: the app runs but hears nothing | Allow local network access when prompted (System Settings → Privacy & Security → Local Network). |

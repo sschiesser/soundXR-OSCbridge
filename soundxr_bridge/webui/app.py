@@ -1,30 +1,22 @@
-"""NiceGUI spike — one UI for desktop window and tablet browser.
+"""The Sound xR OSC Bridge user interface.
 
-Deliberately a spike, not a replacement: it drives the real engine
-(soundxr_bridge.bridge.Bridge) so what you see is the actual behaviour, but it
-covers only the parts worth judging — live discovery, building a mapping from a
-multi-argument address, editing a leg, and the breakpoint curve, which is the
-one thing Qt did that a browser has to earn.
-
-    python spike_nicegui/app.py              # browser at http://localhost:8090
-    python spike_nicegui/app.py --native     # desktop window (needs pywebview)
+One NiceGUI page, served over HTTP: the same screen works in a browser on
+the machine running the bridge and on a tablet elsewhere on the network.
+It drives soundxr_bridge.bridge.Bridge; nothing about the OSC engine, the
+catalogue or the mapping maths lives here.
 """
 
 from __future__ import annotations
 
-import argparse
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from collections import deque
 
 from nicegui import app as nicegui_app
 from nicegui import ui
 
-from soundxr_bridge import __version__
-from soundxr_bridge.bridge import Bridge
-from soundxr_bridge.mapping import CURVE_KINDS, Leg, Route
-from soundxr_bridge.project import Project
+from .. import __version__, presets
+from ..bridge import Bridge
+from ..mapping import CURVE_KINDS, Leg, Route
+from ..project import Project
 
 BRIDGE = Bridge(Project(input_port=10020))
 CATALOG = BRIDGE.catalog
@@ -77,38 +69,65 @@ def set_dest(protocol: str, host: str | None = None, port: float | None = None,
     BRIDGE.sender.load_dict(BRIDGE.project.destinations)
 
 
+PENDING: "deque[str]" = deque(maxlen=500)      # lines waiting to reach the log
+MONITOR_ON: dict = {"enabled": True}
+
+
+def set_monitor(enabled: bool) -> None:
+    """Turn the output log on or off.
+
+    A fast tracker feed can push thousands of lines a minute over the websocket
+    to every connected browser; switching it off costs nothing and keeps a
+    tablet responsive during a show.
+    """
+    MONITOR_ON["enabled"] = bool(enabled)
+    if not enabled:
+        PENDING.clear()        # do not flush a backlog when it is turned back on
+
+
+def _log_output(messages: list) -> None:
+    if not MONITOR_ON["enabled"]:
+        return
+    for address, args, proto in messages:
+        pretty = " ".join(f"{a:g}" if isinstance(a, float) else str(a) for a in args)
+        dest = BRIDGE.sender.destinations.get(proto)
+        note = "" if (dest and dest.enabled) else f"   <-- NOT SENT: {proto} output is off"
+        PENDING.append(f"[{proto}] {address} {pretty}{note}")
+
+
+BRIDGE.on_output = _log_output
+
+
+def send_all() -> None:
+    messages = BRIDGE.engine.flush(force=True)
+    BRIDGE.sender.send_many(messages)
+    _log_output(messages)
+    ui.notify(f"Forced {len(messages)} message(s)")
+
+
 def simulate() -> None:
-    """Inject traffic so the UI can be judged without an OSC source."""
+    """Inject traffic, exactly as the receiver would, so the whole chain can be
+    exercised without an OSC source: the discovery table fills, mappings
+    compute, and the monitor shows what would go to the DME."""
     import math
     import time
     t = time.time()
-    BRIDGE.discovery.observe("/mocap/head",
-                             (2.0 * math.sin(t), 1.2 * math.cos(t * 0.7), 1.0 + math.sin(t * 0.3)),
-                             "10.21.137.9:10020")
-    BRIDGE.discovery.observe("/ctl/fader/1", (0.5 + 0.5 * math.sin(t * 0.4),),
-                             "10.21.137.9:10020")
+    fake = [
+        ("/mocap/head", (2.0 * math.sin(t), 1.2 * math.cos(t * 0.7),
+                         1.0 + math.sin(t * 0.3))),
+        ("/ctl/fader/1", (0.5 + 0.5 * math.sin(t * 0.4),)),
+    ]
+    for address, args in fake:
+        BRIDGE.discovery.observe(address, args, "simulated")
+        BRIDGE.engine.handle(address, list(args))   # drive the mappings too
 
 
-PRESET_DIR = Path(__file__).resolve().parent / "presets"
-AUTOSAVE = PRESET_DIR / "_autosave.json"
-
-
-def preset_names() -> list[str]:
-    PRESET_DIR.mkdir(exist_ok=True)
-    return sorted(f.stem for f in PRESET_DIR.glob("*.json")
-                  if not f.stem.startswith("_"))
-
-
-def _safe(name: str) -> str:
-    keep = "-_. "
-    cleaned = "".join(c for c in name.strip() if c.isalnum() or c in keep).strip()
-    return cleaned or "untitled"
+preset_names = presets.names
 
 
 def save_preset(name: str | None = None) -> None:
-    name = _safe(name or STATE.get("preset") or "untitled")
-    PRESET_DIR.mkdir(exist_ok=True)
-    BRIDGE.sync_project().save(PRESET_DIR / f"{name}.json")
+    name = presets.safe_name(name or STATE.get("preset") or "untitled")
+    presets.save(BRIDGE.sync_project(), name)
     STATE["preset"] = name
     ui.notify(f"Saved preset '{name}'", type="positive")
     preset_bar.refresh()
@@ -123,7 +142,7 @@ def load_preset(name: str | None) -> None:
     """
     if not name:
         return
-    path = PRESET_DIR / f"{name}.json"
+    path = presets.path_for(name)
     if not path.is_file():
         ui.notify(f"No preset '{name}'", type="warning")
         return
@@ -148,9 +167,7 @@ def load_preset(name: str | None) -> None:
 def delete_preset(name: str | None) -> None:
     if not name:
         return
-    path = PRESET_DIR / f"{name}.json"
-    if path.is_file():
-        path.unlink()
+    if presets.delete(name):
         ui.notify(f"Deleted '{name}'")
     if STATE.get("preset") == name:
         STATE["preset"] = None
@@ -242,6 +259,44 @@ def add_route(address: str) -> None:
     select_leg(route, route.legs[0])
     ui.notify(f"{address} → {len(route.legs)} leg(s)")
     mappings.refresh()
+
+
+def add_leg(route: Route) -> None:
+    """A new leg on the same target, taking the next free argument slot."""
+    target = CATALOG.get("adm.obj.xyz")
+    source_arg = None
+    in_min, in_max = 0.0, 1.0
+    if route.legs:
+        last = route.legs[-1]
+        target = CATALOG.targets.get(last.target_id, target)
+        in_min, in_max = last.in_min, last.in_max
+        source_arg = None if last.source_arg is None else last.source_arg + 1
+    used = {l.arg for l in route.legs if l.target_id == target.id}
+    free = [a for a in target.args if a.name not in used] or list(target.args)
+    spec = free[0]
+    leg = Leg(target.id, spec.name, {i.name: i.default for i in target.indices},
+              source_arg=source_arg, in_min=in_min, in_max=in_max,
+              out_min=spec.min, out_max=spec.max)
+    route.legs.append(leg)
+    select_leg(route, leg)
+    mappings.refresh()
+
+
+def duplicate_leg(route: Route, leg: Leg) -> None:
+    clone = Leg.from_dict(leg.to_dict())
+    route.legs.insert(route.legs.index(leg) + 1, clone)
+    select_leg(route, clone)
+    mappings.refresh()
+
+
+def remove_leg(route: Route, leg: Leg) -> None:
+    if leg in route.legs:
+        route.legs.remove(leg)
+        BRIDGE.engine.bus.clear()
+    if STATE["leg"] is leg:
+        STATE["leg"] = route.legs[0] if route.legs else None
+    mappings.refresh()
+    editor.refresh()
 
 
 def select_leg(route: Route, leg: Leg) -> None:
@@ -418,7 +473,6 @@ def remove_selected() -> None:
 
 
 # ------------------------------------------------------------------ the page
-@ui.page("/")
 def main_page() -> None:
     ui.dark_mode(True)
     ui.query("body").style("font-family: system-ui")
@@ -426,7 +480,7 @@ def main_page() -> None:
     with ui.header().classes("items-center gap-4 py-2"):
         status = ui.icon("circle", size="14px")
         ui.label(f"Sound xR OSC Bridge {__version__}").classes("text-lg font-medium")
-        ui.label("NiceGUI spike").classes("text-xs opacity-60")
+        ui.label("OSC → Sound xR Image").classes("text-xs opacity-60")
         run_btn = ui.button("Start", on_click=start_stop).props("unelevated")
         preset_bar()
         counters = ui.label("").classes("ml-auto text-sm opacity-80")
@@ -452,6 +506,7 @@ def main_page() -> None:
 
             transport()
             presets_card()
+            monitor_card()
 
         # ---- mappings and editor -------------------------------------
         with ui.column().classes("w-full lg:w-[48%] gap-4"):
@@ -475,8 +530,34 @@ def main_page() -> None:
             curve_view.set_content(curve_svg(STATE["leg"]))
         if LEARN_LABEL["w"] is not None:
             LEARN_LABEL["w"].text = learn_tick()
+        log = MONITOR_LOG["w"]
+        if log is not None and PENDING:
+            while PENDING:
+                log.push(PENDING.popleft())
 
     ui.timer(0.25, refresh)
+
+
+def monitor_card() -> None:
+    with ui.card().classes("w-full mt-4"):
+        with ui.row().classes("items-center w-full"):
+            ui.label("Output monitor").classes("text-base font-medium")
+            ui.switch(value=MONITOR_ON["enabled"],
+                      on_change=lambda e: set_monitor(e.value)) \
+                .tooltip("log every outgoing message — turn it off at high "
+                         "message rates")
+            ui.space()
+            ui.button("Clear", on_click=lambda: (PENDING.clear(), _clear_log())) \
+                .props("flat dense size=sm")
+        MONITOR_LOG["w"] = ui.log(max_lines=300).classes("w-full h-40 text-xs")
+
+
+MONITOR_LOG: dict = {"w": None}
+
+
+def _clear_log() -> None:
+    if MONITOR_LOG["w"] is not None:
+        MONITOR_LOG["w"].clear()
 
 
 @ui.refreshable
@@ -557,6 +638,14 @@ def transport() -> None:
                 ui.switch(value=d["enabled"],
                           on_change=lambda e, p=proto: set_dest(p, enabled=e.value)) \
                     .tooltip("send to this destination")
+        with ui.row().classes("w-full gap-2 items-center"):
+            ui.number("Send rate", value=int(BRIDGE.project.send_rate_hz), format="%d",
+                      min=1, max=500, suffix="Hz",
+                      on_change=lambda e: setattr(BRIDGE.project, "send_rate_hz",
+                                                  float(e.value or 100))).classes("w-32") \
+                .tooltip("how often changed values are flushed to the outputs")
+            ui.button("Send all now", icon="send", on_click=send_all).props("flat dense") \
+                .tooltip("force every mapped parameter out, even if unchanged")
         ui.label("Changes apply immediately; the input port restarts the "
                  "receiver while it is running.").classes("text-xs opacity-60")
 
@@ -568,7 +657,21 @@ def mappings() -> None:
         if not BRIDGE.engine.routes:
             ui.label("Nothing mapped yet.").classes("text-xs opacity-60")
         for route in BRIDGE.engine.routes:
-            with ui.expansion(route.source, value=True).classes("w-full"):
+            with ui.expansion(route.label(), value=True).classes("w-full"):
+                with ui.row().classes("w-full gap-2 items-end"):
+                    ui.input("Source address", value=route.source,
+                             on_change=lambda e, r=route: (
+                                 setattr(r, "source", e.value.strip() or "/*"),
+                                 BRIDGE.engine.bus.clear())) \
+                        .classes("flex-1").tooltip(
+                            "wildcards allowed: /track/*/xyz or /obj/?/gain")
+                    ui.number("Default arg", value=route.arg_index, format="%d",
+                              on_change=lambda e, r=route: setattr(
+                                  r, "arg_index", int(e.value or 0))).classes("w-28") \
+                        .tooltip("used by legs whose source argument is -1")
+                    ui.switch(value=route.enabled,
+                              on_change=lambda e, r=route: setattr(r, "enabled", e.value)) \
+                        .tooltip("route enabled")
                 for leg in route.legs:
                     target = CATALOG.targets.get(leg.target_id)
                     src = "route" if leg.source_arg is None else f"arg {leg.source_arg}"
@@ -580,8 +683,18 @@ def mappings() -> None:
                             .classes("text-sm")
                         ui.space()
                         ui.badge(target.protocol if target else "?").props("outline")
-                ui.button("Remove route", on_click=lambda r=route: delete_route(r)) \
-                    .props("flat dense color=negative")
+                        ui.button(icon="content_copy",
+                                  on_click=lambda r=route, l=leg: duplicate_leg(r, l)) \
+                            .props("flat dense size=sm").tooltip("duplicate this leg")
+                        ui.button(icon="close",
+                                  on_click=lambda r=route, l=leg: remove_leg(r, l)) \
+                            .props("flat dense size=sm color=negative")
+                with ui.row().classes("gap-2"):
+                    ui.button("Add leg", icon="add",
+                              on_click=lambda r=route: add_leg(r)).props("flat dense")
+                    ui.button("Remove route", icon="delete",
+                              on_click=lambda r=route: delete_route(r)) \
+                        .props("flat dense color=negative")
 
 
 @ui.refreshable
@@ -652,6 +765,31 @@ def editor() -> None:
                     .props("flat dense")
         learn_status = ui.label("").classes("text-xs font-mono opacity-80")
         LEARN_LABEL["w"] = learn_status
+
+        with ui.row().classes("w-full gap-3 items-center"):
+            ui.switch("enabled", value=leg.enabled,
+                      on_change=lambda e: (setattr(leg, "enabled", e.value),
+                                           mappings.refresh()))
+            ui.switch("invert", value=leg.invert,
+                      on_change=lambda e: (setattr(leg, "invert", e.value), leg.reset(),
+                                           _redraw(leg)))
+            ui.switch("clamp input", value=leg.clamp_input,
+                      on_change=lambda e: setattr(leg, "clamp_input", e.value))
+        with ui.row().classes("w-full gap-2"):
+            ui.number("Deadzone", value=leg.deadzone, step=0.01, min=0.0, max=0.99,
+                      format="%.3f",
+                      on_change=lambda e: (setattr(leg, "deadzone", float(e.value or 0)),
+                                           leg.reset(), _redraw(leg))).classes("flex-1") \
+                .tooltip("ignore this fraction of the input span around its centre")
+            ui.number("Smoothing", value=leg.smoothing, step=0.05, min=0.0, max=0.99,
+                      format="%.3f",
+                      on_change=lambda e: (setattr(leg, "smoothing", float(e.value or 0)),
+                                           leg.reset())).classes("flex-1") \
+                .tooltip("one pole filter applied per incoming message")
+            ui.number("Quantise", value=leg.quantize, step=0.01, min=0.0,
+                      format="%.3f",
+                      on_change=lambda e: setattr(leg, "quantize", float(e.value or 0))) \
+                .classes("flex-1").tooltip("round the output to this step, 0 = off")
 
         with ui.row().classes("w-full gap-2"):
             ui.number("Out min", value=leg.out_min, format="%.3f",
@@ -735,30 +873,62 @@ def point_fields() -> None:
 
 curve_view = None
 
-if __name__ in {"__main__", "__mp_main__"}:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--native", action="store_true", help="desktop window")
-    ap.add_argument("--port", type=int, default=8090)
-    args, _ = ap.parse_known_args()
-    def _autosave() -> None:
-        try:
-            PRESET_DIR.mkdir(exist_ok=True)
-            BRIDGE.sync_project().save(AUTOSAVE)
-        except Exception:
-            pass
-        BRIDGE.stop()
+def _autosave() -> None:
+    try:
+        BRIDGE.sync_project().save(presets.autosave_path())
+    except Exception:
+        pass
+    BRIDGE.stop()
 
-    if AUTOSAVE.is_file():                    # pick up where we left off
-        try:
-            restored = Project.load(AUTOSAVE)
-            BRIDGE.project = restored
-            BRIDGE.engine.routes = restored.routes
-            BRIDGE.sender.load_dict(restored.destinations)
-            print(f"  restored {len(restored.routes)} route(s) from _autosave.json")
-        except Exception as exc:
-            print("  could not restore autosave:", exc)
 
+def _restore_autosave() -> int:
+    path = presets.autosave_path()
+    if not path.is_file():
+        return 0
+    try:
+        restored = Project.load(path)
+    except Exception:
+        return 0
+    BRIDGE.project = restored
+    BRIDGE.engine.routes = restored.routes
+    BRIDGE.sender.load_dict(restored.destinations)
+    return len(restored.routes)
+
+
+def create_ui() -> None:
+    """Register the page. Safe to call on every start, including under test."""
+    ui.page("/")(main_page)
+
+
+def run(port: int = 8080, host: str = "0.0.0.0", show: bool = True,
+        project: Project | None = None, start: bool = False) -> None:
+    """Serve the interface. Called by ``python -m soundxr_bridge``."""
+    from ..osc_io import local_addresses
+
+    if project is not None:
+        BRIDGE.project = project
+        BRIDGE.engine.routes = project.routes
+        BRIDGE.sender.load_dict(project.destinations)
+    else:
+        count = _restore_autosave()
+        if count:
+            print(f"Restored {count} route(s) from your last session")
+
+    if start:
+        try:
+            BRIDGE.start()
+            print(f"Listening on {BRIDGE.project.input_host}:"
+                  f"{BRIDGE.project.input_port}")
+        except OSError as exc:
+            print(f"Cannot listen on {BRIDGE.project.input_host}:"
+                  f"{BRIDGE.project.input_port} - {exc}")
+
+    print(f"Presets and autosave live in {presets.preset_dir()}")
+    for ip in local_addresses():
+        print(f"  open on this machine or a tablet:  http://{ip}:{port}")
+
+    create_ui()
     nicegui_app.on_shutdown(_autosave)
-    ui.run(title=f"Sound xR OSC Bridge {__version__} (NiceGUI spike)",
-           port=args.port, native=args.native, reload=False, show=False,
-           window_size=(1280, 900) if args.native else None)
+    ui.run(title=f"Sound xR OSC Bridge {__version__}", port=port, host=host,
+           show=show, reload=False, favicon="\N{SPEAKER WITH THREE SOUND WAVES}",
+           dark=True)

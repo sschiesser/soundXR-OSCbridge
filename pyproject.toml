@@ -1,14 +1,17 @@
 [project]
 name = "soundxr-osc-bridge"
-version = "1.0.0"
+version = "2.0.0"
 description = "Auto-discovering OSC mapper for Yamaha Sound xR Image"
 requires-python = ">=3.10"
-dependencies = ["python-osc>=1.8", "PySide6>=6.5"]
+dependencies = ["python-osc>=1.8", "nicegui>=3.0"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
+asyncio_mode = "auto"                 # NiceGUI's user fixture is async
+asyncio_default_fixture_loop_scope = "function"
+markers = ["nicegui_main_file: the file that defines the pages under test"]
 
 [tool.setuptools.packages.find]
 include = ["soundxr_bridge*"]
