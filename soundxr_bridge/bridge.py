@@ -74,11 +74,21 @@ class Bridge:
 
     # -- project ---------------------------------------------------------
     def apply_project(self, project: Project) -> None:
+        """Swap in a project, leaving the listening state exactly as it was.
+
+        Restarting unconditionally used to start the receiver even when the
+        bridge was stopped, quietly taking the port.
+        """
+        was_running = self.receiver.running
         self.project = project
         self.engine.routes = project.routes
         self.engine.reset()
         self.sender.load_dict(project.destinations)
-        self.receiver.restart(project.input_host, project.input_port)
+        if was_running:
+            self.receiver.restart(project.input_host, project.input_port)
+        else:
+            self.receiver.host = project.input_host
+            self.receiver.port = project.input_port
 
     def sync_project(self) -> Project:
         self.project.destinations = self.sender.to_dict()
@@ -86,16 +96,9 @@ class Bridge:
         return self.project
 
 
-def run_headless(project_path: str | Path, verbose: bool = True,
-                 web_port: int | None = None, web_host: str = "0.0.0.0") -> None:
+def run_headless(project_path: str | Path, verbose: bool = True) -> None:
     project = Project.load(project_path)
     bridge = Bridge(project)
-    remote = None
-    if web_port:
-        from .web import WebRemote
-        remote = WebRemote(bridge, web_host, web_port)
-        remote.start()
-        print(f"Browser remote on http://{web_host}:{web_port}/")
     if verbose:
         def log(messages):
             for address, args, proto in messages:
@@ -113,6 +116,4 @@ def run_headless(project_path: str | Path, verbose: bool = True,
     except KeyboardInterrupt:
         pass
     finally:
-        if remote:
-            remote.stop()
         bridge.stop()
