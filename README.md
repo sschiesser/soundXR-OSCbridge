@@ -67,6 +67,12 @@ amount you set by slider, number box or preset button — or `breakpoints`, a
 point table you drag directly on the plot. A red cursor rides the curve showing
 where the live input currently sits.
 
+**Quitting.** *Quit* in the header stops listening, saves the session and ends
+the process, so the console window closes by itself — no Ctrl-C. It asks first,
+since pressing it from a tablet closes the bridge on the show machine. Closing
+the browser tab does **not** quit: the bridge keeps running and you can reopen
+the address.
+
 ## Signal path of one leg
 
 ```
@@ -190,7 +196,7 @@ launch — until you agree, the OSC sockets stay silent.
 
 ```bash
 pip install -r requirements-dev.txt    # pytest + pytest-asyncio
-python -m pytest tests -q              # 42 tests, no browser and no display needed
+python -m pytest tests -q              # 44 tests, no browser and no display needed
 ```
 
 `pytest-asyncio` is not optional: NiceGUI's `user` fixture is async, and without

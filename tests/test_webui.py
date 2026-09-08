@@ -190,3 +190,34 @@ async def test_simulate_drives_the_mappings_not_just_the_table(user: User) -> No
     user.find("Simulate").click()          # this one should reach the engine
     webui.BRIDGE.tick()
     assert any("/adm/obj/1/xyz" in line for line in webui.PENDING), list(webui.PENDING)
+
+
+async def test_quit_asks_before_it_closes_anything(user: User) -> None:
+    """The header button must not kill a running show on one stray tap."""
+    webui = ui_module()
+    calls: list = []
+    webui._shutdown = lambda: calls.append("down")   # never really stop pytest
+    await user.open("/")
+
+    user.find("Quit").click()
+    await user.should_see("Quit the bridge?")
+    assert not calls, "the dialog alone must not shut anything down"
+
+    user.find("Cancel").click()
+    assert not calls
+
+
+async def test_quit_stops_the_bridge_and_the_server(user: User) -> None:
+    import asyncio
+    webui = ui_module()
+    calls: list = []
+    webui._shutdown = lambda: calls.append("down")
+    await user.open("/")
+    webui.BRIDGE.start()
+    assert webui.BRIDGE.receiver.running
+
+    user.find("Quit").click()
+    user.find("Quit now").click()
+    assert not webui.BRIDGE.receiver.running, "quitting must free the OSC port"
+    await asyncio.sleep(0.8)                       # the goodbye-message delay
+    assert calls == ["down"], "the server was never asked to stop"

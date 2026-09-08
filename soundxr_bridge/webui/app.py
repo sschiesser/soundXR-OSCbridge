@@ -8,6 +8,7 @@ catalogue or the mapping maths lives here.
 
 from __future__ import annotations
 
+import threading
 from collections import deque
 
 from nicegui import app as nicegui_app
@@ -40,6 +41,59 @@ def start_stop() -> None:
                       f"{BRIDGE.project.input_port}")
         except OSError as exc:
             ui.notify(f"Cannot listen: {exc}", type="negative", timeout=8000)
+
+
+# ------------------------------------------------------------------- quitting
+# Closing the browser tab leaves the app running on purpose — you may want it
+# back. Quit is the deliberate way out, so the console window closes itself
+# instead of needing Ctrl-C.
+def _shutdown() -> None:
+    """Stop the web server. Replaced in tests, which must survive the call."""
+    nicegui_app.shutdown()
+
+
+GOODBYE = ("document.body.innerHTML ="
+           "'<div style=\"font-family:system-ui;color:#ddd;background:#121212;"
+           "height:100vh;display:flex;align-items:center;justify-content:center;"
+           "flex-direction:column;gap:.5rem\">"
+           "<div style=\"font-size:1.2rem\">The bridge has stopped.</div>"
+           "<div style=\"opacity:.6\">You can close this tab.</div></div>'")
+
+
+def quit_app(delay: float = 0.4) -> None:
+    """Stop listening, tell the page, then end the process.
+
+    The short delay lets the goodbye message reach the browser: shutting the
+    server down first would kill the socket carrying it.
+    """
+    BRIDGE.stop()
+    try:
+        ui.run_javascript(GOODBYE)
+    except Exception:
+        pass
+    print("Quit from the interface - closing.")
+    if delay <= 0:
+        _shutdown()
+        return
+    try:
+        ui.timer(delay, lambda: _shutdown(), once=True)
+    except RuntimeError:
+        # no client context: called from a script rather than a button
+        threading.Timer(delay, _shutdown).start()
+
+
+def confirm_quit() -> None:
+    with ui.dialog() as dialog, ui.card():
+        ui.label("Quit the bridge?").classes("text-base font-medium")
+        ui.label("Listening stops and the application closes on the machine "
+                 "running it — including when you press this from a tablet. "
+                 "Your settings are saved automatically.") \
+            .classes("text-xs opacity-70 max-w-xs")
+        with ui.row().classes("ml-auto"):
+            ui.button("Cancel", on_click=dialog.close).props("flat")
+            ui.button("Quit now", on_click=lambda: (dialog.close(), quit_app())) \
+                .props("unelevated color=negative")
+    dialog.open()
 
 
 def set_input(host: str | None = None, port: float | None = None) -> None:
@@ -484,6 +538,9 @@ def main_page() -> None:
         run_btn = ui.button("Start", on_click=start_stop).props("unelevated")
         preset_bar()
         counters = ui.label("").classes("ml-auto text-sm opacity-80")
+        ui.button("Quit", on_click=confirm_quit) \
+            .props("flat dense color=white") \
+            .tooltip("stop the bridge and close the application")
 
     with ui.row().classes("w-full gap-4 p-4 items-start"):
         # ---- incoming -------------------------------------------------
