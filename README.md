@@ -189,8 +189,13 @@ launch — until you agree, the OSC sockets stay silent.
 ## Tests
 
 ```bash
-python -m pytest tests -q       # 42 tests, no browser and no display needed
+pip install -r requirements-dev.txt    # pytest + pytest-asyncio
+python -m pytest tests -q              # 42 tests, no browser and no display needed
 ```
+
+`pytest-asyncio` is not optional: NiceGUI's `user` fixture is async, and without
+the plugin every page test errors with a bare `AssertionError` from pytest's own
+fixture machinery. `conftest.py` checks for it and says so in one line.
 
 `tests/test_loopback.py` runs the whole chain over real sockets. `test_webui.py`
 drives the actual page through NiceGUI's own harness — clicking buttons and

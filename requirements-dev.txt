@@ -1,1 +1,6 @@
-pytest>=7.0
+# Everything the test suite needs on top of requirements.txt.
+pytest>=8.0
+# NiceGUI's `user` fixture is an async fixture, and the page tests are async
+# functions. Without this plugin every test in tests/test_webui.py errors out
+# with a bare AssertionError from pytest's own fixture machinery.
+pytest-asyncio>=0.23
