@@ -28,7 +28,8 @@ from soundxr_bridge.project import Project
 
 BRIDGE = Bridge(Project(input_port=10020))
 CATALOG = BRIDGE.catalog
-STATE: dict = {"leg": None, "route": None, "sel": None, "drag": False}
+STATE: dict = {"leg": None, "route": None, "sel": None, "drag": False,
+               "learn": None}
 
 TARGET_OPTIONS = {t.id: f"{t.group} · {t.label}"
                   for t in sorted(CATALOG.targets.values(),
@@ -86,6 +87,66 @@ def simulate() -> None:
                              "10.21.137.9:10020")
     BRIDGE.discovery.observe("/ctl/fader/1", (0.5 + 0.5 * math.sin(t * 0.4),),
                              "10.21.137.9:10020")
+
+
+LEARN_SECONDS = 20.0
+
+
+def start_learning(whole_route: bool) -> None:
+    """Watch the incoming values and take their min/max from the message stream.
+
+    Clearing the stored statistics first means the range comes from what
+    happens *now* — every message counted, not a 4 Hz sample of it — so a quick
+    flick to the extremes is enough and old outliers are forgotten.
+    """
+    import time
+    route, leg = STATE["route"], STATE["leg"]
+    if route is None or leg is None:
+        return
+    BRIDGE.discovery.forget(route.source)
+    STATE["learn"] = {"route": route, "legs": list(route.legs) if whole_route else [leg],
+                      "until": time.time() + LEARN_SECONDS}
+    ui.notify("Move the controller through its full range…")
+    editor.refresh()
+
+
+def finish_learning(apply: bool = True) -> None:
+    job = STATE["learn"]
+    STATE["learn"] = None
+    if not job:
+        return
+    info = BRIDGE.discovery.get(job["route"].source)
+    applied = 0
+    for leg in job["legs"]:
+        rng = info.observed_range(job["route"].index_for(leg)) if info else None
+        if apply and rng and rng[0] != rng[1]:
+            leg.in_min, leg.in_max = rng
+            leg.reset()
+            applied += 1
+    ui.notify(f"Learned {applied} range(s)" if applied else
+              "Nothing learned — no values moved", type="positive" if applied else "warning")
+    editor.refresh()
+    mappings.refresh()
+
+
+def learn_tick() -> str:
+    """Called by the UI timer; returns the status line and auto-stops."""
+    import time
+    job = STATE["learn"]
+    if not job:
+        return ""
+    if time.time() > job["until"]:
+        finish_learning()
+        return ""
+    info = BRIDGE.discovery.get(job["route"].source)
+    parts = []
+    for leg in job["legs"]:
+        rng = info.observed_range(job["route"].index_for(leg)) if info else None
+        index = job["route"].index_for(leg)
+        parts.append(f"arg {index}: {rng[0]:+.3f} … {rng[1]:+.3f}" if rng
+                     else f"arg {index}: —")
+    left = job["until"] - time.time()
+    return f"learning {left:.0f}s   " + "   ".join(parts)
 
 
 def add_route(address: str) -> None:
@@ -250,6 +311,32 @@ def move_selected(dx: float = 0.0, dy: float = 0.0, to=None) -> None:
     point_fields.refresh()
 
 
+AMOUNT_W: dict = {"number": None, "slider": None}
+LEARN_LABEL: dict = {"w": None}
+
+
+def set_amount(value, source: str = "") -> None:
+    """Steepness of the exponential / logarithmic / s curves.
+
+    Never rebuilds the widgets: refreshing them mid-drag destroys the slider
+    the pointer is holding, which is why dragging did nothing before.
+    """
+    leg = STATE["leg"]
+    if leg is None or value is None or STATE.get("syncing"):
+        return
+    leg.curve.amount = max(0.05, min(12.0, float(value)))
+    leg.reset()
+    _redraw(leg)
+    STATE["syncing"] = True                 # keep the twin widget in step
+    try:
+        if source != "number" and AMOUNT_W["number"] is not None:
+            AMOUNT_W["number"].value = round(leg.curve.amount, 2)
+        if source != "slider" and AMOUNT_W["slider"] is not None:
+            AMOUNT_W["slider"].value = min(6.0, leg.curve.amount)
+    finally:
+        STATE["syncing"] = False
+
+
 def remove_selected() -> None:
     leg = STATE["leg"]
     if leg is None or STATE["sel"] is None or len(leg.curve.points) <= 2:
@@ -315,6 +402,8 @@ def main_page() -> None:
         BRIDGE.tick()
         if STATE["leg"] is not None:
             curve_view.set_content(curve_svg(STATE["leg"]))
+        if LEARN_LABEL["w"] is not None:
+            LEARN_LABEL["w"].text = learn_tick()
 
     ui.timer(0.25, refresh)
 
@@ -422,6 +511,24 @@ def editor() -> None:
             ui.number("In max", value=leg.in_max, format="%.3f",
                       on_change=lambda e: setattr(leg, "in_max", float(e.value or 0))
                       ).classes("flex-1")
+        with ui.row().classes("w-full gap-2 items-center"):
+            if STATE["learn"] is None:
+                ui.button("Learn this leg", icon="radio_button_checked",
+                          on_click=lambda: start_learning(False)) \
+                    .props("flat dense").tooltip(
+                        "watch the incoming values and take min/max from them")
+                ui.button("Learn whole route", icon="playlist_add_check",
+                          on_click=lambda: start_learning(True)) \
+                    .props("flat dense").tooltip(
+                        "one pass sets the range of every leg, each on its own argument")
+            else:
+                ui.button("Stop and apply", icon="stop",
+                          on_click=lambda: finish_learning(True)).props("unelevated dense")
+                ui.button("Cancel", on_click=lambda: finish_learning(False)) \
+                    .props("flat dense")
+        learn_status = ui.label("").classes("text-xs font-mono opacity-80")
+        LEARN_LABEL["w"] = learn_status
+
         with ui.row().classes("w-full gap-2"):
             ui.number("Out min", value=leg.out_min, format="%.3f",
                       on_change=lambda e: setattr(leg, "out_min", float(e.value or 0))
@@ -446,6 +553,37 @@ def editor() -> None:
             point_fields()
             ui.label("drag a handle to move it · press empty space to add one") \
                 .classes("text-xs opacity-60")
+        else:
+            amount_controls()
+
+
+HINTS = {
+    "exponential": "1 = linear · higher = slow start, fast finish",
+    "logarithmic": "1 = linear · higher = fast start, slow finish",
+    "scurve": "1 = linear · higher = flatter middle, steeper ends",
+}
+
+
+@ui.refreshable
+def amount_controls() -> None:
+    leg = STATE["leg"]
+    AMOUNT_W["number"] = AMOUNT_W["slider"] = None
+    if leg is None or leg.curve.kind not in HINTS:
+        return
+    with ui.row().classes("items-center gap-3 w-full"):
+        AMOUNT_W["number"] = ui.number(
+            "Amount", value=round(leg.curve.amount, 2), step=0.1,
+            min=0.05, max=12.0, format="%.2f",
+            on_change=lambda e: set_amount(e.value, "number")).classes("w-28")
+        AMOUNT_W["slider"] = ui.slider(
+            min=0.1, max=6.0, step=0.05, value=min(6.0, leg.curve.amount),
+            on_change=lambda e: set_amount(e.value, "slider")) \
+            .props("label-always").classes("flex-1")
+    with ui.row().classes("gap-1"):
+        for preset in (0.5, 1.0, 2.0, 3.0, 4.0):
+            ui.button(f"{preset:g}", on_click=lambda p=preset: set_amount(p, "preset")) \
+                .props("flat dense size=sm")
+        ui.label(HINTS[leg.curve.kind]).classes("text-xs opacity-60 self-center ml-2")
 
 
 @ui.refreshable

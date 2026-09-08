@@ -21,9 +21,15 @@ not mocked. In ~330 lines of Python it covers:
 - live discovery table, updating over a websocket rather than polling
 - tap an address, get one leg per numeric argument with learned ranges
 - leg editor: target, argument, index, source argument, ranges, curve
+- curve amount for exponential / logarithmic / s-curve: number box,
+  slider and preset buttons, with the plot following live
 - the breakpoint curve as inline SVG with the live input cursor: press a
   handle and drag it, press empty space to add one, edit the selected point
   numerically (x/y fields), delete it with the bin button
+- **Learn range**: press it, move the controller, press stop — min/max come
+  from the message stream (every message, not a sample), and old outliers
+  are forgotten first. *Learn whole route* does every leg in one pass,
+  each on its own argument
 - transport: listen address and port, and host/port/enable per output
 - the same page on desktop and tablet — the columns stack below `lg`
 
