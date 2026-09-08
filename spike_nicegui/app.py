@@ -29,7 +29,7 @@ from soundxr_bridge.project import Project
 BRIDGE = Bridge(Project(input_port=10020))
 CATALOG = BRIDGE.catalog
 STATE: dict = {"leg": None, "route": None, "sel": None, "drag": False,
-               "learn": None}
+               "learn": None, "preset": None}
 
 TARGET_OPTIONS = {t.id: f"{t.group} · {t.label}"
                   for t in sorted(CATALOG.targets.values(),
@@ -87,6 +87,75 @@ def simulate() -> None:
                              "10.21.137.9:10020")
     BRIDGE.discovery.observe("/ctl/fader/1", (0.5 + 0.5 * math.sin(t * 0.4),),
                              "10.21.137.9:10020")
+
+
+PRESET_DIR = Path(__file__).resolve().parent / "presets"
+AUTOSAVE = PRESET_DIR / "_autosave.json"
+
+
+def preset_names() -> list[str]:
+    PRESET_DIR.mkdir(exist_ok=True)
+    return sorted(f.stem for f in PRESET_DIR.glob("*.json")
+                  if not f.stem.startswith("_"))
+
+
+def _safe(name: str) -> str:
+    keep = "-_. "
+    cleaned = "".join(c for c in name.strip() if c.isalnum() or c in keep).strip()
+    return cleaned or "untitled"
+
+
+def save_preset(name: str | None = None) -> None:
+    name = _safe(name or STATE.get("preset") or "untitled")
+    PRESET_DIR.mkdir(exist_ok=True)
+    BRIDGE.sync_project().save(PRESET_DIR / f"{name}.json")
+    STATE["preset"] = name
+    ui.notify(f"Saved preset '{name}'", type="positive")
+    preset_bar.refresh()
+    presets_card.refresh()
+
+
+def load_preset(name: str | None) -> None:
+    """Apply a saved preset without touching whether we are listening.
+
+    Deliberately not Bridge.apply_project(): that restarts the receiver, which
+    would start listening even when the bridge is stopped.
+    """
+    if not name:
+        return
+    path = PRESET_DIR / f"{name}.json"
+    if not path.is_file():
+        ui.notify(f"No preset '{name}'", type="warning")
+        return
+    project = Project.load(path)
+    was_running = BRIDGE.receiver.running
+    BRIDGE.project = project
+    BRIDGE.engine.routes = project.routes
+    BRIDGE.engine.reset()
+    BRIDGE.engine.bus.clear()
+    BRIDGE.sender.load_dict(project.destinations)
+    if was_running:
+        try:
+            BRIDGE.receiver.restart(project.input_host, project.input_port)
+        except OSError as exc:
+            ui.notify(f"Loaded, but cannot listen: {exc}", type="negative", timeout=8000)
+    STATE.update(preset=name, leg=None, route=None, sel=None, learn=None)
+    ui.notify(f"Loaded '{name}' — {len(project.routes)} route(s)")
+    for part in (preset_bar, presets_card, transport, mappings, editor):
+        part.refresh()
+
+
+def delete_preset(name: str | None) -> None:
+    if not name:
+        return
+    path = PRESET_DIR / f"{name}.json"
+    if path.is_file():
+        path.unlink()
+        ui.notify(f"Deleted '{name}'")
+    if STATE.get("preset") == name:
+        STATE["preset"] = None
+    preset_bar.refresh()
+    presets_card.refresh()
 
 
 LEARN_SECONDS = 20.0
@@ -359,6 +428,7 @@ def main_page() -> None:
         ui.label(f"Sound xR OSC Bridge {__version__}").classes("text-lg font-medium")
         ui.label("NiceGUI spike").classes("text-xs opacity-60")
         run_btn = ui.button("Start", on_click=start_stop).props("unelevated")
+        preset_bar()
         counters = ui.label("").classes("ml-auto text-sm opacity-80")
 
     with ui.row().classes("w-full gap-4 p-4 items-start"):
@@ -381,6 +451,7 @@ def main_page() -> None:
             ui.label("Tap a row to build a mapping from it").classes("text-xs opacity-60")
 
             transport()
+            presets_card()
 
         # ---- mappings and editor -------------------------------------
         with ui.column().classes("w-full lg:w-[48%] gap-4"):
@@ -408,6 +479,59 @@ def main_page() -> None:
     ui.timer(0.25, refresh)
 
 
+@ui.refreshable
+def preset_bar() -> None:
+    """Always-visible preset switcher: pick one and it loads immediately."""
+    names = preset_names()
+    ui.select(names or [], value=STATE.get("preset"), label="Preset",
+              on_change=lambda e: load_preset(e.value)) \
+        .props("dense options-dense dark").classes("w-56") \
+        .tooltip("choosing a preset applies it straight away")
+    ui.button(icon="save", on_click=lambda: save_preset()) \
+        .props("flat dense").tooltip("save over the current preset")
+
+
+@ui.refreshable
+def presets_card() -> None:
+    with ui.card().classes("w-full mt-4"):
+        with ui.row().classes("items-center w-full"):
+            ui.label("Presets").classes("text-base font-medium")
+            ui.space()
+            ui.label(f"current: {STATE.get('preset') or '—'}").classes("text-xs opacity-60")
+        with ui.row().classes("w-full gap-2 items-end"):
+            # mirror every keystroke: reading .value at click time can race the
+            # browser->server update and silently save as "untitled"
+            typed = {"name": ""}
+
+            def do_save() -> None:
+                save_preset(typed["name"] or name_box.value)
+                typed["name"] = ""
+                name_box.set_value("")
+
+            name_box = ui.input(
+                "Save as", placeholder="show name",
+                on_change=lambda e: typed.__setitem__("name", e.value or "")) \
+                .classes("flex-1")
+            name_box.on("keydown.enter", do_save)
+            ui.button("Save", icon="save", on_click=do_save).props("unelevated dense")
+        names = preset_names()
+        if not names:
+            ui.label("No presets yet — build a mapping and save it.") \
+                .classes("text-xs opacity-60")
+        for name in names:
+            with ui.row().classes("w-full items-center gap-2"):
+                ui.icon("bookmark", size="16px").classes(
+                    "text-blue-400" if name == STATE.get("preset") else "opacity-40")
+                ui.label(name).classes("text-sm flex-1")
+                ui.button("Load", on_click=lambda n=name: load_preset(n)) \
+                    .props("flat dense size=sm")
+                ui.button(icon="delete", on_click=lambda n=name: delete_preset(n)) \
+                    .props("flat dense size=sm color=negative")
+        ui.label("Settings are also written to _autosave.json when the app closes "
+                 "and restored on the next start.").classes("text-xs opacity-60")
+
+
+@ui.refreshable
 def transport() -> None:
     with ui.card().classes("w-full mt-4"):
         ui.label("Transport").classes("text-base font-medium")
@@ -616,7 +740,25 @@ if __name__ in {"__main__", "__mp_main__"}:
     ap.add_argument("--native", action="store_true", help="desktop window")
     ap.add_argument("--port", type=int, default=8090)
     args, _ = ap.parse_known_args()
-    nicegui_app.on_shutdown(BRIDGE.stop)
+    def _autosave() -> None:
+        try:
+            PRESET_DIR.mkdir(exist_ok=True)
+            BRIDGE.sync_project().save(AUTOSAVE)
+        except Exception:
+            pass
+        BRIDGE.stop()
+
+    if AUTOSAVE.is_file():                    # pick up where we left off
+        try:
+            restored = Project.load(AUTOSAVE)
+            BRIDGE.project = restored
+            BRIDGE.engine.routes = restored.routes
+            BRIDGE.sender.load_dict(restored.destinations)
+            print(f"  restored {len(restored.routes)} route(s) from _autosave.json")
+        except Exception as exc:
+            print("  could not restore autosave:", exc)
+
+    nicegui_app.on_shutdown(_autosave)
     ui.run(title=f"Sound xR OSC Bridge {__version__} (NiceGUI spike)",
            port=args.port, native=args.native, reload=False, show=False,
            window_size=(1280, 900) if args.native else None)

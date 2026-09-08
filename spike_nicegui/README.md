@@ -31,6 +31,9 @@ not mocked. In ~330 lines of Python it covers:
   are forgotten first. *Learn whole route* does every leg in one pass,
   each on its own argument
 - transport: listen address and port, and host/port/enable per output
+- **presets**: save the whole setup (routes, legs, curves, ports) to
+  `spike_nicegui/presets/<name>.json`, switch between them from the
+  header dropdown, autosaved on exit and restored on the next start
 - the same page on desktop and tablet — the columns stack below `lg`
 
 That is roughly the feature set of `gui/main_window.py` (≈900 lines) *and*
@@ -46,10 +49,18 @@ That is roughly the feature set of `gui/main_window.py` (≈900 lines) *and*
   requirements: `reload=False`, `freeze_support()` as the first statement in
   the main guard, `native.find_open_port()`, and the EdgeChromium WebView2
   runtime on Windows.
-- **No project save/load and no monitor pane.**
+- **No monitor pane.**
 - **State is global**, shared by every connected browser. Correct for a remote,
   but it means two people editing at once see each other's changes with no
   locking — the same caveat the current web remote has.
+
+## One engine bug this uncovered
+
+`Bridge.apply_project()` calls `receiver.restart()` unconditionally, so
+loading a project **starts listening even when the bridge is stopped** —
+this affects the shipping 1.4.1 too (File > Open project in the Qt
+window). The spike applies presets by hand and only restarts the
+receiver if it was already running.
 
 ## The decision this is for
 
