@@ -41,7 +41,7 @@ Find the exact identity string with `security find-identity -v -p codesigning`.
 ## 4 · Push a tag
 
 ```bash
-git tag v2.0.0 && git push origin v2.0.0
+git tag v1.0.0 && git push origin v1.0.0
 ```
 
 The macOS jobs then sign every binary in the bundle, sign the bundle, build a

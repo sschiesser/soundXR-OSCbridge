@@ -11,7 +11,11 @@ from PyInstaller.utils.hooks import collect_all
 
 ROOT = Path(SPECPATH).parent
 NAME = "SoundxR-OSC-Bridge"
-VERSION = "2.0.0"
+
+# the single source of truth, so the .app bundle version always matches the
+# number the app itself prints
+sys.path.insert(0, str(ROOT))
+from soundxr_bridge import __version__ as VERSION  # noqa: E402
 
 nicegui_datas, nicegui_binaries, nicegui_hidden = collect_all("nicegui")
 

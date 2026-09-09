@@ -1,6 +1,6 @@
 [project]
 name = "soundxr-osc-bridge"
-version = "2.0.0"
+dynamic = ["version"]        # read from soundxr_bridge/__init__.py
 description = "Auto-discovering OSC mapper for Yamaha Sound xR Image"
 requires-python = ">=3.10"
 dependencies = ["python-osc>=1.8", "nicegui>=3.0"]
@@ -12,6 +12,9 @@ addopts = "-q"
 asyncio_mode = "auto"                 # NiceGUI's user fixture is async
 asyncio_default_fixture_loop_scope = "function"
 markers = ["nicegui_main_file: the file that defines the pages under test"]
+
+[tool.setuptools.dynamic]
+version = {attr = "soundxr_bridge.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["soundxr_bridge*"]

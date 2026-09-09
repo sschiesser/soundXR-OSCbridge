@@ -182,7 +182,20 @@ asset fails the build instead of shipping.
 `.github/workflows/build.yml` builds all four targets (Windows, macOS arm64,
 macOS Intel, Linux) on every push, runs the tests and the smoke test, and
 attaches the results to a GitHub release when you push a version tag
-(`v2.0.0` or `2.0.0` — both are accepted).
+(`v1.1.0` or `1.1.0` — both are accepted).
+
+### Version numbers and releasing
+
+The version is one line in `soundxr_bridge/__init__.py`; `pyproject.toml` and
+the PyInstaller spec read it from there, so it is never typed twice.
+
+```bash
+python tools/set_version.py 1.1.0      # set it, then commit, push, tag 1.1.0
+```
+
+**[docs/RELEASING.md](docs/RELEASING.md) is the step-by-step**: how to pick the
+number, the exact commands, what CI does with a tag, and what to check when a
+release does not appear.
 
 **macOS signing** is wired up but dormant: with the four signing secrets set,
 the macOS jobs sign, notarise and staple a DMG; without them they produce an
