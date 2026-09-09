@@ -2,7 +2,7 @@ name: build
 
 on:
   push:
-    branches: [main, develop]
+    branches: [master,main, develop]
     tags: ["v*", "[0-9]*.[0-9]*.[0-9]*"]   # v2.0.0 and 2.0.0 both release
   pull_request:
   workflow_dispatch:
