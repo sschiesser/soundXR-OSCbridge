@@ -181,7 +181,8 @@ asset fails the build instead of shipping.
 
 `.github/workflows/build.yml` builds all four targets (Windows, macOS arm64,
 macOS Intel, Linux) on every push, runs the tests and the smoke test, and
-attaches the results to a GitHub release when you push a `v*` tag.
+attaches the results to a GitHub release when you push a version tag
+(`v2.0.0` or `2.0.0` — both are accepted).
 
 **macOS signing** is wired up but dormant: with the four signing secrets set,
 the macOS jobs sign, notarise and staple a DMG; without them they produce an

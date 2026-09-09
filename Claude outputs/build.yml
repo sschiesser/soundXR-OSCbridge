@@ -1,0 +1,159 @@
+name: build
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["v*", "[0-9]*.[0-9]*.[0-9]*"]   # v2.0.0 and 2.0.0 both release
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: SoundxR-OSC-Bridge-windows
+          - os: macos-latest            # Apple silicon
+            artifact: SoundxR-OSC-Bridge-macos-arm64
+          - os: macos-15-intel          # Intel (macos-13 was retired Dec 2025)
+            artifact: SoundxR-OSC-Bridge-macos-x86_64
+          - os: ubuntu-latest
+            artifact: SoundxR-OSC-Bridge-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt pyinstaller
+
+      - name: Run tests
+        run: python -m pytest tests -q
+
+      - name: Build
+        run: python -m PyInstaller packaging/soundxr_bridge.spec --noconfirm --clean
+
+      - name: Smoke test the packaged app
+        shell: bash
+        run: python packaging/smoke_test.py
+
+      # ---------------- macOS signing ----------------
+      # Every signing step is skipped when the secrets are absent, so forks and
+      # first-time builds still produce a working (unsigned) app.
+      - name: Are the signing secrets present?
+        id: signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CERT: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+        run: |
+          if [ -n "$CERT" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No MACOS_CERTIFICATE_P12 secret — shipping an unsigned app."
+          fi
+
+      - name: Import the Developer ID certificate
+        if: steps.signing.outputs.available == 'true'
+        env:
+          CERT: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+          echo "$CERT" | base64 --decode > /tmp/certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import /tmp/certificate.p12 -k build.keychain \
+            -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain >/dev/null
+          rm -f /tmp/certificate.p12
+          security find-identity -v -p codesigning build.keychain
+
+      - name: Sign, notarise and staple
+        if: steps.signing.outputs.available == 'true'
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: bash packaging/sign_macos.sh
+
+      - name: Package the unsigned macOS app
+        if: runner.os == 'macOS' && steps.signing.outputs.available != 'true'
+        run: |
+          cd dist && zip -qry "../${{ matrix.artifact }}.zip" SoundxR-OSC-Bridge.app
+
+      - name: Collect the signed macOS DMG
+        if: steps.signing.outputs.available == 'true'
+        run: |
+          mv SoundxR-OSC-Bridge-macos-*.dmg "${{ matrix.artifact }}.dmg"
+
+      # ---------------- Windows and Linux ----------------
+      - name: Package Windows / Linux
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          cd dist
+          7z a -tzip "../${{ matrix.artifact }}.zip" SoundxR-OSC-Bridge >/dev/null \
+            || zip -qry "../${{ matrix.artifact }}.zip" SoundxR-OSC-Bridge
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.zip
+            ${{ matrix.artifact }}.dmg
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/*.dmg
+          generate_release_notes: true
+          body: |
+            ### Which file do I need?
+
+            | Your machine | Download |
+            |---|---|
+            | Windows 10/11 | `SoundxR-OSC-Bridge-windows.zip` |
+            | Mac with Apple silicon (M1-M4) | `SoundxR-OSC-Bridge-macos-arm64.dmg` |
+            | Mac with Intel | `SoundxR-OSC-Bridge-macos-x86_64.dmg` |
+            | Linux | `SoundxR-OSC-Bridge-linux.zip` |
+
+            No Python installation needed — everything is bundled.
+
+            The app opens its interface in your default browser. The same
+            address works from an iPad or phone on the same network, so a
+            tablet can drive a bridge running on the show machine.
+
+            **Windows:** unzip, keep the folder together, run
+            `SoundxR-OSC-Bridge.exe`. Allow it through Windows Firewall on the
+            private network, or no OSC will arrive.
+
+            **macOS:** open the DMG and drag the app to Applications. On first
+            launch macOS asks for local network access — the OSC sockets stay
+            silent until you agree. (A `.zip` here instead of a `.dmg` means
+            that build was unsigned: right-click → Open on first launch.)
