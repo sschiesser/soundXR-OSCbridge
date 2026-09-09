@@ -33,8 +33,15 @@ def binary() -> Path:
     return exe
 
 
-def free_port() -> int:
-    s = socket.socket()
+def free_port(kind: int = socket.SOCK_STREAM) -> int:
+    """A port the OS says is free — for the protocol it will actually be used for.
+
+    Asking a TCP socket for a spare port and then binding UDP to it works on
+    Linux and macOS and fails on Windows with WinError 10013: Hyper-V reserves
+    whole ranges of UDP ports there, and they differ from the TCP ones. Probe
+    with the same protocol as the eventual socket.
+    """
+    s = socket.socket(socket.AF_INET, kind)
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
     s.close()
@@ -46,8 +53,18 @@ def main() -> int:
     from pythonosc.osc_server import ThreadingOSCUDPServer
     from pythonosc.udp_client import SimpleUDPClient
 
-    ui_port, in_port, out_port = free_port(), free_port(), free_port()
+    ui_port = free_port()                          # the interface is TCP
+    in_port = free_port(socket.SOCK_DGRAM)         # OSC is UDP
     data_dir = Path(tempfile.mkdtemp(prefix="soundxr-smoke-"))
+
+    # the sink takes whatever port the OS hands it, so there is no window
+    # between choosing a port and binding it
+    received: list = []
+    disp = Dispatcher()
+    disp.set_default_handler(lambda addr, *a: received.append((addr, list(a))))
+    sink = ThreadingOSCUDPServer(("127.0.0.1", 0), disp)
+    out_port = sink.server_address[1]
+    threading.Thread(target=sink.serve_forever, daemon=True).start()
 
     # a mapping that turns one incoming message into a known ADM-OSC message
     project = {
@@ -67,12 +84,6 @@ def main() -> int:
     }
     preset = data_dir / "smoke.json"
     preset.write_text(json.dumps(project))
-
-    received: list = []
-    disp = Dispatcher()
-    disp.set_default_handler(lambda addr, *a: received.append((addr, list(a))))
-    sink = ThreadingOSCUDPServer(("127.0.0.1", out_port), disp)
-    threading.Thread(target=sink.serve_forever, daemon=True).start()
 
     env = dict(os.environ, SOUNDXR_DATA_DIR=str(data_dir))
     proc = subprocess.Popen(
