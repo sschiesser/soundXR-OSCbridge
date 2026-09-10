@@ -2,8 +2,8 @@ name: build
 
 on:
   push:
-    branches: [main, develop]
-    tags: ["v*"]
+    branches: [master, main, develop]
+    tags: ["v*", "[0-9]*.[0-9]*.[0-9]*"]   # v1.0.0 and 1.0.0 both release
   pull_request:
   workflow_dispatch:
 
@@ -38,6 +38,11 @@ jobs:
       - name: Run tests
         run: python -m pytest tests -q
 
+      - name: Stamp the version from the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: python tools/set_version.py "${GITHUB_REF_NAME}"
+
       - name: Build
         run: python -m PyInstaller packaging/soundxr_bridge.spec --noconfirm --clean
 
@@ -59,7 +64,7 @@ jobs:
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No MACOS_CERTIFICATE_P12 secret - shipping an unsigned app."
+            echo "::notice::No MACOS_CERTIFICATE_P12 secret — shipping an unsigned app."
           fi
 
       - name: Import the Developer ID certificate
@@ -119,7 +124,7 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -143,7 +148,7 @@ jobs:
             | Mac with Intel | `SoundxR-OSC-Bridge-macos-x86_64.dmg` |
             | Linux | `SoundxR-OSC-Bridge-linux.zip` |
 
-            No Python installation needed - everything is bundled.
+            No Python installation needed — everything is bundled.
 
             The app opens its interface in your default browser. The same
             address works from an iPad or phone on the same network, so a
@@ -154,6 +159,6 @@ jobs:
             private network, or no OSC will arrive.
 
             **macOS:** open the DMG and drag the app to Applications. On first
-            launch macOS asks for local network access - the OSC sockets stay
+            launch macOS asks for local network access — the OSC sockets stay
             silent until you agree. (A `.zip` here instead of a `.dmg` means
-            that build was unsigned: right-click then Open on first launch.)
+            that build was unsigned: right-click → Open on first launch.)

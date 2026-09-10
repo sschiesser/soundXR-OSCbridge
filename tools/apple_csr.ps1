@@ -132,6 +132,9 @@ $openssl = Find-OpenSSL
 Write-Host "openssl: $openssl"
 
 Set-Location $WorkDir
+# Set-Location moves PowerShell's location but not the process working
+# directory that .NET calls like [IO.File] use, so point that at it too.
+[Environment]::CurrentDirectory = (Get-Location).Path
 Write-Host "working in: $WorkDir"
 Write-FolderReadme -Folder $WorkDir
 Write-Host ""
@@ -199,10 +202,43 @@ if ($LASTEXITCODE -ne 0) { throw "the .cer could not be read. Is it the file App
 Write-Host ""
 Write-Host "Choose a password for the .p12. You will need it again as the" -ForegroundColor Yellow
 Write-Host "MACOS_CERTIFICATE_PASSWORD secret, so write it down now." -ForegroundColor Yellow
-& $openssl pkcs12 -export -legacy -inkey developerID.key -in developerID.pem -certfile DeveloperIDG2CA.pem -out certificate.p12
-if ($LASTEXITCODE -ne 0) { throw "openssl pkcs12 failed" }
+$secret1 = Read-Host "Password" -AsSecureString
+$secret2 = Read-Host "Password again" -AsSecureString
+$plain1 = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret1))
+$plain2 = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret2))
+if ($plain1 -ne $plain2) { throw "the two passwords do not match" }
+if ($plain1.Length -lt 8) { throw "use at least 8 characters" }
 
-$b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("certificate.p12"))
+# Handed to openssl through the environment, so it never appears on a command
+# line that other processes could read.
+$env:P12PASS = $plain1
+try {
+    # macOS imports PKCS#12 files protected the old way (SHA1 + 3DES). OpenSSL 3
+    # defaults to AES-256 instead, and its -legacy switch needs a provider DLL
+    # that the Git for Windows build does not ship - so name the algorithms
+    # explicitly, which the default provider can do on its own.
+    $exportArgs = @(
+        "pkcs12", "-export",
+        "-keypbe", "PBE-SHA1-3DES", "-certpbe", "PBE-SHA1-3DES", "-macalg", "sha1",
+        "-inkey", "developerID.key", "-in", "developerID.pem",
+        "-certfile", "DeveloperIDG2CA.pem",
+        "-out", "certificate.p12", "-passout", "env:P12PASS"
+    )
+    & $openssl @exportArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "that build refused those algorithms; using its defaults instead" -ForegroundColor Yellow
+        Write-Host "(if macOS later refuses the .p12, this is the reason)" -ForegroundColor Yellow
+        & $openssl pkcs12 -export -inkey developerID.key -in developerID.pem -certfile DeveloperIDG2CA.pem -out certificate.p12 -passout env:P12PASS
+    }
+    $exportCode = $LASTEXITCODE
+}
+finally {
+    Remove-Item Env:\P12PASS -ErrorAction SilentlyContinue
+}
+if ($exportCode -ne 0) { throw "openssl pkcs12 failed" }
+
+$p12Path = Join-Path $WorkDir "certificate.p12"
+$b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($p12Path))
 Set-Content -Path "certificate.p12.b64" -Value $b64 -NoNewline
 $clip = ""
 try { Set-Clipboard -Value $b64; $clip = " (also copied to the clipboard)" } catch { }

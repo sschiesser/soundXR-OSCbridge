@@ -82,10 +82,18 @@ openssl x509 -inform DER -in DeveloperIDG2CA.cer -out DeveloperIDG2CA.pem
 
 # c) certificate + key + chain -> one .p12
 openssl x509 -inform DER -in developerID_application.cer -out developerID.pem
-openssl pkcs12 -export -legacy \
+openssl pkcs12 -export \
+  -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 \
   -inkey developerID.key -in developerID.pem -certfile DeveloperIDG2CA.pem \
   -out certificate.p12
 ```
+
+> Those three algorithm flags are the point of that command. macOS imports
+> PKCS#12 files protected the old way (SHA-1 + 3DES); OpenSSL 3 defaults to
+> AES-256, which `security import` on the runner may refuse. The documented
+> shortcut for this is `-legacy`, but that switch loads a provider module the
+> Git for Windows build does not ship — it fails with *unable to load provider
+> legacy*. Naming the algorithms asks the default provider for the same result.
 
 Choose a password when prompted; that is `MACOS_CERTIFICATE_PASSWORD`. Read the
 identity string straight out of the certificate — you do not need a Mac for it:
@@ -114,7 +122,7 @@ So back them up, but never in a way that widens who can read them.
 - **Institutional OneDrive is fine as a second copy — encrypted.** Use the
   ZHdK work account, never a personal one. Do not upload the raw `.key`, and do
   not rely on the `.p12` password alone: it was written with OpenSSL's
-  `-legacy` cipher for macOS compatibility, which is weak by today's standards.
+  old SHA1/3DES protection macOS requires, which is weak by today's standards.
   Wrap the folder first:
 
   ```powershell
